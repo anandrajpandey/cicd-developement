@@ -37,13 +37,13 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        shell: pwsh
+        shell: powershell
         run: corepack pnpm install --frozen-lockfile
 
       - name: Run lint
         id: lint
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           corepack pnpm lint *>&1 | Tee-Object -FilePath lint.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -51,7 +51,7 @@ jobs:
       - name: Run tests
         id: test
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           corepack pnpm test *>&1 | Tee-Object -FilePath test.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -59,7 +59,7 @@ jobs:
       - name: Run typecheck
         id: typecheck
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           corepack pnpm typecheck *>&1 | Tee-Object -FilePath typecheck.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -67,7 +67,7 @@ jobs:
       - name: Run build
         id: build
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           corepack pnpm build *>&1 | Tee-Object -FilePath build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -82,7 +82,7 @@ jobs:
             steps.typecheck.outcome == 'failure' ||
             steps.build.outcome == 'failure'
           )
-        shell: pwsh
+        shell: powershell
         env:
           REPOSITORY: ${{ github.repository }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
@@ -144,7 +144,7 @@ jobs:
           steps.test.outcome == 'failure' ||
           steps.typecheck.outcome == 'failure' ||
           steps.build.outcome == 'failure'
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host 'One or more validation steps failed.'
           exit 1
