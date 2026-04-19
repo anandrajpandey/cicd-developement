@@ -132,9 +132,19 @@ jobs:
             timestamp = (Get-Date).ToUniversalTime().ToString('o')
           } | ConvertTo-Json -Depth 5
 
+          $orchestratorUrl = $env:ORCHESTRATOR_URL.Trim()
+          if ($orchestratorUrl.StartsWith('ORCHESTRATOR_URL=')) {
+            $orchestratorUrl = $orchestratorUrl.Substring('ORCHESTRATOR_URL='.Length)
+          }
+          $orchestratorUrl = $orchestratorUrl.Trim().TrimEnd('/')
+
+          if (-not [Uri]::IsWellFormedUriString($orchestratorUrl, [UriKind]::Absolute)) {
+            throw "ORCHESTRATOR_URL secret is not a valid absolute URL: $orchestratorUrl"
+          }
+
           Invoke-RestMethod `
             -Method Post `
-            -Uri "$($env:ORCHESTRATOR_URL.TrimEnd('/'))/api/events" `
+            -Uri "$orchestratorUrl/api/events" `
             -ContentType 'application/json' `
             -Body $payload
 
