@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   validate-and-report:
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - Windows
     timeout-minutes: 30
     env:
       CI: true
@@ -35,39 +37,40 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        shell: pwsh
         run: corepack pnpm install --frozen-lockfile
 
       - name: Run lint
         id: lint
         continue-on-error: true
-        shell: bash
+        shell: pwsh
         run: |
-          set -o pipefail
-          corepack pnpm lint 2>&1 | tee lint.log
+          corepack pnpm lint *>&1 | Tee-Object -FilePath lint.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run tests
         id: test
         continue-on-error: true
-        shell: bash
+        shell: pwsh
         run: |
-          set -o pipefail
-          corepack pnpm test 2>&1 | tee test.log
+          corepack pnpm test *>&1 | Tee-Object -FilePath test.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run typecheck
         id: typecheck
         continue-on-error: true
-        shell: bash
+        shell: pwsh
         run: |
-          set -o pipefail
-          corepack pnpm typecheck 2>&1 | tee typecheck.log
+          corepack pnpm typecheck *>&1 | Tee-Object -FilePath typecheck.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run build
         id: build
         continue-on-error: true
-        shell: bash
+        shell: pwsh
         run: |
-          set -o pipefail
-          corepack pnpm build 2>&1 | tee build.log
+          corepack pnpm build *>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Report failure to orchestrator
         if: >
@@ -79,84 +82,61 @@ jobs:
             steps.typecheck.outcome == 'failure' ||
             steps.build.outcome == 'failure'
           )
-        shell: bash
+        shell: pwsh
         env:
           REPOSITORY: ${{ github.repository }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
           PR_URL: ${{ github.event.pull_request.html_url || '' }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          JOB_NAME: ${{ github.job }}
           LINT_OUTCOME: ${{ steps.lint.outcome }}
           TEST_OUTCOME: ${{ steps.test.outcome }}
           TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
         run: |
-          set -euo pipefail
-
-          python - <<'PY'
-          import json
-          import os
-          import uuid
-          import urllib.request
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          outcomes = {
-              "lint": os.environ["LINT_OUTCOME"],
-              "test": os.environ["TEST_OUTCOME"],
-              "typecheck": os.environ["TYPECHECK_OUTCOME"],
-              "build": os.environ["BUILD_OUTCOME"],
+          $failureType = 'build_failure'
+          if ($env:LINT_OUTCOME -eq 'failure') {
+            $failureType = 'lint_error'
+          } elseif ($env:TEST_OUTCOME -eq 'failure') {
+            $failureType = 'test_failure'
           }
 
-          failure_type = "build_failure"
-          if outcomes["lint"] == "failure":
-              failure_type = "lint_error"
-          elif outcomes["test"] == "failure":
-              failure_type = "test_failure"
-
-          sections = [
-              "GitHub workflow: CI Debate Intake",
-              f"Repository: {os.environ['REPOSITORY']}",
-              f"Branch: {os.environ['BRANCH_NAME']}",
-              f"Commit: {os.environ['COMMIT_SHA']}",
-              f"Pull Request: {os.environ.get('PR_URL') or 'none'}",
-              "",
-              "Step outcomes:",
-          ]
-
-          for step_name, outcome in outcomes.items():
-              sections.append(f"- {step_name}: {outcome}")
-
-          for file_name in ("lint.log", "test.log", "typecheck.log", "build.log"):
-              path = Path(file_name)
-              if path.exists():
-                  sections.extend(["", f"===== {file_name} =====", path.read_text(encoding="utf-8")])
-
-          error_log = "\n".join(sections)
-          event_seed = f"{os.environ['RUN_ID']}-{os.environ['RUN_ATTEMPT']}-{os.environ['JOB_NAME']}"
-
-          payload = {
-              "eventId": str(uuid.uuid5(uuid.NAMESPACE_URL, event_seed)),
-              "repository": os.environ["REPOSITORY"],
-              "commitSha": os.environ["COMMIT_SHA"],
-              "branch": os.environ["BRANCH_NAME"],
-              "failureType": failure_type,
-              "errorLog": error_log,
-              "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-          }
-
-          request = urllib.request.Request(
-              url=f"{os.environ['ORCHESTRATOR_URL'].rstrip('/')}/api/events",
-              data=json.dumps(payload).encode("utf-8"),
-              headers={"Content-Type": "application/json"},
-              method="POST",
+          $lines = @(
+            'GitHub workflow: CI Debate Intake',
+            "Repository: $env:REPOSITORY",
+            "Branch: $env:BRANCH_NAME",
+            "Commit: $env:COMMIT_SHA",
+            ("Pull Request: " + ($(if ($env:PR_URL) { $env:PR_URL } else { 'none' }))),
+            '',
+            'Step outcomes:',
+            "- lint: $env:LINT_OUTCOME",
+            "- test: $env:TEST_OUTCOME",
+            "- typecheck: $env:TYPECHECK_OUTCOME",
+            "- build: $env:BUILD_OUTCOME"
           )
 
-          with urllib.request.urlopen(request, timeout=20) as response:
-              print(response.read().decode("utf-8"))
-          PY
+          foreach ($file in @('lint.log', 'test.log', 'typecheck.log', 'build.log')) {
+            if (Test-Path $file) {
+              $lines += ''
+              $lines += "===== $file ====="
+              $lines += Get-Content $file
+            }
+          }
+
+          $payload = @{
+            eventId = ([guid]::NewGuid()).ToString()
+            repository = $env:REPOSITORY
+            commitSha = $env:COMMIT_SHA
+            branch = $env:BRANCH_NAME
+            failureType = $failureType
+            errorLog = ($lines -join "`n")
+            timestamp = (Get-Date).ToUniversalTime().ToString('o')
+          } | ConvertTo-Json -Depth 5
+
+          Invoke-RestMethod `
+            -Method Post `
+            -Uri "$($env:ORCHESTRATOR_URL.TrimEnd('/'))/api/events" `
+            -ContentType 'application/json' `
+            -Body $payload
 
       - name: Fail workflow if any validation failed
         if: >
@@ -164,7 +144,7 @@ jobs:
           steps.test.outcome == 'failure' ||
           steps.typecheck.outcome == 'failure' ||
           steps.build.outcome == 'failure'
-        shell: bash
+        shell: pwsh
         run: |
-          echo "One or more validation steps failed."
+          Write-Host 'One or more validation steps failed.'
           exit 1
