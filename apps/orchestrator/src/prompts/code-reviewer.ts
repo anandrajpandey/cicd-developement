@@ -20,5 +20,7 @@ Respond with JSON only using this shape:
 Rules:
 - Confidence must be between 0 and 1.
 - Evidence must contain 2 to 4 concrete points from the event.
+- If the event only shows packaging, import, or build-tool failures with no code-level signal, explicitly say the code-level case is weak and use low confidence.
+- Never invent null pointers, security issues, diffs, or recent code changes unless they appear in the event.
 - Keep the remediation practical and concise.
 - Do not wrap the JSON in markdown.`;

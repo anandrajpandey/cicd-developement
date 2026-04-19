@@ -12,6 +12,14 @@ export const rebuttalPositionSchema = z.enum(['DEFEND', 'CONCEDE']);
 export const riskTierSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 
 export const approvalActionSchema = z.enum(['APPROVE', 'REJECT']);
+export const roundExecutionSourceSchema = z.enum(['ADK', 'NATIVE']);
+
+export const executionMetaSchema = z.object({
+  round0: roundExecutionSourceSchema,
+  round1: roundExecutionSourceSchema,
+  round2: roundExecutionSourceSchema,
+  round3: roundExecutionSourceSchema,
+});
 
 export const pipelineEventSchema = z.object({
   eventId: z.string().uuid(),
@@ -58,6 +66,7 @@ export const decisionSchema = z.object({
   riskTier: riskTierSchema,
   reasoning: z.string().min(1),
   recommendedAction: z.string().min(1),
+  executionMeta: executionMetaSchema.optional(),
 });
 
 export const approvalSchema = z.object({
@@ -71,9 +80,11 @@ export type AgentId = z.infer<typeof agentIdSchema>;
 export type RebuttalPosition = z.infer<typeof rebuttalPositionSchema>;
 export type RiskTier = z.infer<typeof riskTierSchema>;
 export type ApprovalAction = z.infer<typeof approvalActionSchema>;
+export type RoundExecutionSource = z.infer<typeof roundExecutionSourceSchema>;
 export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
 export type AgentFinding = z.infer<typeof agentFindingSchema>;
 export type Challenge = z.infer<typeof challengeSchema>;
 export type Rebuttal = z.infer<typeof rebuttalSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Approval = z.infer<typeof approvalSchema>;
+export type ExecutionMeta = z.infer<typeof executionMetaSchema>;

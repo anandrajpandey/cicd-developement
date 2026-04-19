@@ -16,11 +16,13 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.36.4",
     "fastify": "^4.28.1",
+    "ioredis": "^5.4.2",
     "socket.io": "^4.8.1",
     "winston": "^3.17.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@google/adk": "^0.6.1",
     "tsx": "^4.19.2"
   }
 }

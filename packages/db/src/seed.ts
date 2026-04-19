@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
+import bcrypt from 'bcryptjs';
+
 import { db, pool } from './client.js';
-import { pipelineEvents } from './schema.js';
+import { pipelineEvents, users } from './schema.js';
 
 async function seed(): Promise<void> {
   const now = new Date();
+
+  const seededAdminEmail = process.env.ADMIN_EMAIL ?? 'admin@local.dev';
+  const seededAdminPassword = process.env.ADMIN_PASSWORD ?? 'password';
 
   await db.insert(pipelineEvents).values([
     {
@@ -28,6 +33,22 @@ async function seed(): Promise<void> {
       timestamp: new Date(now.getTime() - 60 * 60 * 1000),
     },
   ]);
+
+  await db
+    .insert(users)
+    .values({
+      userId: randomUUID(),
+      email: seededAdminEmail,
+      passwordHash: bcrypt.hashSync(seededAdminPassword, 10),
+      role: 'admin',
+    })
+    .onConflictDoUpdate({
+      target: users.email,
+      set: {
+        passwordHash: bcrypt.hashSync(seededAdminPassword, 10),
+        role: 'admin',
+      },
+    });
 }
 
 seed()

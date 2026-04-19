@@ -34,26 +34,38 @@ export function LiveDebateView({
     const socket: Socket = io(baseUrl, { transports: ['websocket'] });
 
     socket.emit('debate:subscribe', eventId);
-    socket.on('round:0:complete', (payload: { eventId: string; findings: LiveState['findings'] }) => {
-      if (payload.eventId === eventId) {
-        setState((previous) => ({ ...previous, findings: payload.findings }));
-      }
-    });
-    socket.on('round:1:complete', (payload: { eventId: string; challenges: LiveState['challenges'] }) => {
-      if (payload.eventId === eventId) {
-        setState((previous) => ({ ...previous, challenges: payload.challenges }));
-      }
-    });
-    socket.on('round:2:complete', (payload: { eventId: string; rebuttals: LiveState['rebuttals'] }) => {
-      if (payload.eventId === eventId) {
-        setState((previous) => ({ ...previous, rebuttals: payload.rebuttals }));
-      }
-    });
-    socket.on('decision:ready', (payload: { eventId: string; decision: NonNullable<LiveState['decision']> }) => {
-      if (payload.eventId === eventId) {
-        setState((previous) => ({ ...previous, decision: payload.decision }));
-      }
-    });
+    socket.on(
+      'round:0:complete',
+      (payload: { eventId: string; findings: LiveState['findings'] }) => {
+        if (payload.eventId === eventId) {
+          setState((previous) => ({ ...previous, findings: payload.findings }));
+        }
+      },
+    );
+    socket.on(
+      'round:1:complete',
+      (payload: { eventId: string; challenges: LiveState['challenges'] }) => {
+        if (payload.eventId === eventId) {
+          setState((previous) => ({ ...previous, challenges: payload.challenges }));
+        }
+      },
+    );
+    socket.on(
+      'round:2:complete',
+      (payload: { eventId: string; rebuttals: LiveState['rebuttals'] }) => {
+        if (payload.eventId === eventId) {
+          setState((previous) => ({ ...previous, rebuttals: payload.rebuttals }));
+        }
+      },
+    );
+    socket.on(
+      'decision:ready',
+      (payload: { eventId: string; decision: NonNullable<LiveState['decision']> }) => {
+        if (payload.eventId === eventId) {
+          setState((previous) => ({ ...previous, decision: payload.decision }));
+        }
+      },
+    );
 
     return () => {
       socket.emit('debate:unsubscribe', eventId);
@@ -82,14 +94,37 @@ export function LiveDebateView({
           <div className="text-sm text-mist/60">{state.findings.length}/4 findings received</div>
         </div>
 
+        {state.decision?.executionMeta ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            {Object.entries(state.decision.executionMeta).map(([round, source]) => (
+              <div key={round} className="rounded-2xl border border-line bg-black/15 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-mist/55">{round}</p>
+                <p
+                  className={cn(
+                    'mt-2 text-sm font-semibold',
+                    source === 'ADK' ? 'text-mint' : 'text-amber-200',
+                  )}
+                >
+                  {source}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <div className="mt-6 grid gap-4 xl:grid-cols-2">
           {state.findings.map((finding) => (
-            <article key={finding.findingId} className="rounded-3xl border border-line bg-black/15 p-5">
+            <article
+              key={finding.findingId}
+              className="rounded-3xl border border-line bg-black/15 p-5"
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-mint/80">
                   {finding.agentId.replaceAll('_', ' ')}
                 </p>
-                <span className="text-sm text-mist/70">{(finding.confidence * 100).toFixed(0)}%</span>
+                <span className="text-sm text-mist/70">
+                  {(finding.confidence * 100).toFixed(0)}%
+                </span>
               </div>
               <div className="mt-3 h-2 rounded-full bg-white/5">
                 <div
@@ -120,7 +155,10 @@ export function LiveDebateView({
               const rebuttal = challenge ? rebuttalByChallenge.get(challenge.challengeId) : null;
 
               return (
-                <div key={finding.agentId} className="rounded-3xl border border-line bg-black/15 p-5">
+                <div
+                  key={finding.agentId}
+                  className="rounded-3xl border border-line bg-black/15 p-5"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm uppercase tracking-[0.18em] text-mint/80">
                       {finding.agentId.replaceAll('_', ' ')}
@@ -145,7 +183,9 @@ export function LiveDebateView({
                       </div>
                     </>
                   ) : (
-                    <p className="mt-4 text-sm text-mist/65">This finding survived Round 1 unchanged.</p>
+                    <p className="mt-4 text-sm text-mist/65">
+                      This finding survived Round 1 unchanged.
+                    </p>
                   )}
                 </div>
               );
@@ -166,7 +206,9 @@ export function LiveDebateView({
               </div>
               <p className="text-sm leading-7 text-mist/80">{state.decision.reasoning}</p>
               <div className="rounded-3xl border border-mint/15 bg-mint/8 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-mint/75">Recommended Action</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-mint/75">
+                  Recommended Action
+                </p>
                 <p className="mt-2 text-sm text-white">{state.decision.recommendedAction}</p>
               </div>
             </div>

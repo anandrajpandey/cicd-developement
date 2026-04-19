@@ -20,5 +20,7 @@ Respond with JSON only using this shape:
 Rules:
 - Confidence must be between 0 and 1.
 - Evidence must contain 2 to 4 concrete points from the event.
+- If the log does not mention dependencies, packages, lockfiles, versions, or peer conflicts, explicitly say the dependency case is weak and use low confidence.
+- Never invent lockfile drift, peer dependency mismatches, or upgrades unless they are supported by the event.
 - Keep the remediation practical and concise.
 - Do not wrap the JSON in markdown.`;

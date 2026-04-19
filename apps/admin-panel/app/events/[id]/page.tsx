@@ -3,15 +3,12 @@ import { notFound } from 'next/navigation';
 import { ApprovalPanel } from '../../../components/approval-panel';
 import { LiveDebateView } from '../../../components/live-debate-view';
 import { RiskBadge } from '../../../components/risk-badge';
-import { getDecision } from '../../../lib/orchestrator';
+import { getTrpcCaller } from '../../../lib/trpc/server';
 
-export default async function EventDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const data = await getDecision(id);
+  const caller = await getTrpcCaller();
+  const data = await caller.decisionByEventId(id);
 
   if (!data) {
     notFound();

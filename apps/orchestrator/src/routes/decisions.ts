@@ -2,18 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import type { FastifyPluginAsync } from 'fastify';
 
-import { and, desc, eq, inArray, notExists } from 'drizzle-orm';
 import { z } from 'zod';
 
-import {
-  agentFindings,
-  approvals,
-  challenges,
-  db,
-  decisions,
-  pipelineEvents,
-  rebuttals,
-} from '@agentic-cicd/db';
+import { approvals, db } from '@agentic-cicd/db';
 import { approvalSchema } from '@agentic-cicd/shared-types';
 
 const approvalRequestSchema = approvalSchema.extend({
@@ -26,31 +17,33 @@ const decisionParamsSchema = z.object({
 
 export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/decisions', async () => {
-    const rows = await db
-      .select({
-        decisionId: decisions.decisionId,
-        eventId: decisions.eventId,
-        compositeScore: decisions.compositeScore,
-        riskTier: decisions.riskTier,
-        reasoning: decisions.reasoning,
-        recommendedAction: decisions.recommendedAction,
-        createdAt: decisions.createdAt,
-        repository: pipelineEvents.repository,
-        failureType: pipelineEvents.failureType,
-        branch: pipelineEvents.branch,
-      })
-      .from(decisions)
-      .innerJoin(pipelineEvents, eq(decisions.eventId, pipelineEvents.eventId))
-      .orderBy(desc(decisions.createdAt));
+    const rows = await db.query.decisions.findMany({
+      with: {
+        event: true,
+      },
+      orderBy: (fields, operators) => [operators.desc(fields.createdAt)],
+    });
 
-    return rows;
+    return rows.map((row) => ({
+      decisionId: row.decisionId,
+      eventId: row.eventId,
+      compositeScore: row.compositeScore,
+      riskTier: row.riskTier,
+      reasoning: row.reasoning,
+      recommendedAction: row.recommendedAction,
+      executionMeta: row.executionMeta,
+      createdAt: row.createdAt,
+      repository: row.event.repository,
+      failureType: row.event.failureType,
+      branch: row.event.branch,
+    }));
   });
 
   fastify.get('/api/decisions/:id', async (request, reply) => {
     const { id } = decisionParamsSchema.parse(request.params);
 
     const decisionRow = await db.query.decisions.findFirst({
-      where: eq(decisions.decisionId, id),
+      where: (fields, operators) => operators.eq(fields.decisionId, id),
     });
 
     if (!decisionRow) {
@@ -61,19 +54,19 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [event, findingRows, challengeRows, rebuttalRows, approvalRows] = await Promise.all([
       db.query.pipelineEvents.findFirst({
-        where: eq(pipelineEvents.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
       }),
       db.query.agentFindings.findMany({
-        where: eq(agentFindings.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
       }),
       db.query.challenges.findMany({
-        where: eq(challenges.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
       }),
       db.query.rebuttals.findMany({
-        where: eq(rebuttals.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
       }),
       db.query.approvals.findMany({
-        where: eq(approvals.decisionId, id),
+        where: (fields, operators) => operators.eq(fields.decisionId, id),
       }),
     ]);
 
@@ -88,42 +81,37 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get('/api/approvals', async () => {
-    const rows = await db
-      .select({
-        decisionId: decisions.decisionId,
-        eventId: decisions.eventId,
-        compositeScore: decisions.compositeScore,
-        riskTier: decisions.riskTier,
-        reasoning: decisions.reasoning,
-        recommendedAction: decisions.recommendedAction,
-        createdAt: decisions.createdAt,
-        repository: pipelineEvents.repository,
-        branch: pipelineEvents.branch,
-        failureType: pipelineEvents.failureType,
-      })
-      .from(decisions)
-      .innerJoin(pipelineEvents, eq(decisions.eventId, pipelineEvents.eventId))
-      .where(
-        and(
-          inArray(decisions.riskTier, ['MEDIUM', 'HIGH']),
-          notExists(
-            db
-              .select({ approvalId: approvals.approvalId })
-              .from(approvals)
-              .where(eq(approvals.decisionId, decisions.decisionId)),
-          ),
-        ),
-      )
-      .orderBy(desc(decisions.createdAt));
+    const rows = await db.query.decisions.findMany({
+      with: {
+        event: true,
+        approvals: true,
+      },
+      where: (fields, operators) => operators.inArray(fields.riskTier, ['MEDIUM', 'HIGH']),
+      orderBy: (fields, operators) => [operators.desc(fields.createdAt)],
+    });
 
-    return rows;
+    return rows
+      .filter((row) => row.approvals.length === 0)
+      .map((row) => ({
+        decisionId: row.decisionId,
+        eventId: row.eventId,
+        compositeScore: row.compositeScore,
+        riskTier: row.riskTier,
+        reasoning: row.reasoning,
+        recommendedAction: row.recommendedAction,
+        executionMeta: row.executionMeta,
+        createdAt: row.createdAt,
+        repository: row.event.repository,
+        branch: row.event.branch,
+        failureType: row.event.failureType,
+      }));
   });
 
   fastify.post('/api/approvals', async (request, reply) => {
     const payload = approvalRequestSchema.parse(request.body);
 
     const decisionRow = await db.query.decisions.findFirst({
-      where: eq(decisions.decisionId, payload.decisionId),
+      where: (fields, operators) => operators.eq(fields.decisionId, payload.decisionId),
     });
 
     if (!decisionRow) {

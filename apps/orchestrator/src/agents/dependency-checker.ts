@@ -17,11 +17,6 @@ export const dependencyCheckerAgent: DebateAgent = {
     );
   },
   rebuttal(myFinding, challenge) {
-    return rebuttalWithPrompt(
-      'dependency_checker',
-      dependencyCheckerPrompt,
-      myFinding,
-      challenge,
-    );
+    return rebuttalWithPrompt('dependency_checker', dependencyCheckerPrompt, myFinding, challenge);
   },
 };

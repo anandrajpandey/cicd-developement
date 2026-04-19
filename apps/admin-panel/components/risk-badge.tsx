@@ -1,16 +1,7 @@
-import { cn } from '../lib/utils';
+import { Badge } from './ui/badge';
 
 export function RiskBadge({ tier }: { tier: 'LOW' | 'MEDIUM' | 'HIGH' }) {
-  return (
-    <span
-      className={cn(
-        'badge',
-        tier === 'LOW' && 'badge-low',
-        tier === 'MEDIUM' && 'badge-medium',
-        tier === 'HIGH' && 'badge-high',
-      )}
-    >
-      {tier}
-    </span>
-  );
+  const variant = tier === 'LOW' ? 'low' : tier === 'MEDIUM' ? 'medium' : 'high';
+
+  return <Badge variant={variant}>{tier}</Badge>;
 }

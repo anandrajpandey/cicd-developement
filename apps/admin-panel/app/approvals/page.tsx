@@ -1,10 +1,11 @@
 import Link from 'next/link';
 
 import { RiskBadge } from '../../components/risk-badge';
-import { listApprovalQueue } from '../../lib/orchestrator';
+import { getTrpcCaller } from '../../lib/trpc/server';
 
 export default async function ApprovalQueuePage() {
-  const items = await listApprovalQueue();
+  const caller = await getTrpcCaller();
+  const items = await caller.approvals();
 
   return (
     <div className="space-y-6">

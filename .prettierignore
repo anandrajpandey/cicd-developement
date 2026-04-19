@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+.next-backup-*
+.turbo
+coverage
+pnpm-lock.yaml
+admin-panel.log
+orchestrator.log

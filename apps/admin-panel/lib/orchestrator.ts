@@ -1,6 +1,13 @@
 const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:4000';
 
 export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
+export type RoundExecutionSource = 'ADK' | 'NATIVE';
+export interface ExecutionMeta {
+  round0: RoundExecutionSource;
+  round1: RoundExecutionSource;
+  round2: RoundExecutionSource;
+  round3: RoundExecutionSource;
+}
 
 export interface DecisionListItem {
   decisionId: string;
@@ -9,6 +16,7 @@ export interface DecisionListItem {
   riskTier: RiskTier;
   reasoning: string;
   recommendedAction: string;
+  executionMeta: ExecutionMeta;
   createdAt: string;
   repository: string;
   failureType: string;
@@ -23,6 +31,7 @@ export interface DecisionDetail {
     riskTier: RiskTier;
     reasoning: string;
     recommendedAction: string;
+    executionMeta: ExecutionMeta;
     createdAt: string;
   };
   event: {
@@ -69,6 +78,24 @@ export interface DecisionDetail {
   }>;
 }
 
+export interface EventSubmissionInput {
+  eventId: string;
+  repository: string;
+  commitSha: string;
+  branch: string;
+  failureType: string;
+  errorLog: string;
+  timestamp: string;
+}
+
+export interface ApprovalSubmissionInput {
+  decisionId: string;
+  approver: string;
+  action: 'APPROVE' | 'REJECT';
+  justification: string;
+  timestamp: string;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${orchestratorUrl}${path}`, {
     ...init,
@@ -110,14 +137,14 @@ export async function listApprovalQueue(): Promise<DecisionListItem[]> {
   }
 }
 
-export async function submitEvent(payload: Record<string, unknown>) {
+export async function submitEvent(payload: EventSubmissionInput) {
   return requestJson<{ eventId: string; status: string }>('/api/events', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
-export async function submitApproval(payload: Record<string, unknown>) {
+export async function submitApproval(payload: ApprovalSubmissionInput) {
   return requestJson<{ status: string; decisionId: string }>('/api/approvals', {
     method: 'POST',
     body: JSON.stringify(payload),

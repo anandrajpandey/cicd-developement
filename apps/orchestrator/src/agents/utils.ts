@@ -195,10 +195,7 @@ Rules:
   }
 }
 
-export async function defaultRebuttal(
-  agentId: AgentId,
-  challenge: Challenge,
-): Promise<Rebuttal> {
+export async function defaultRebuttal(agentId: AgentId, challenge: Challenge): Promise<Rebuttal> {
   return {
     rebuttalId: randomUUID(),
     respondingAgentId: agentId,
@@ -267,10 +264,10 @@ Rules:
   }
 }
 
-export function fallbackDecision(eventId: string, compositeScore: number): Pick<
-  Decision,
-  'reasoning' | 'recommendedAction'
-> {
+export function fallbackDecision(
+  eventId: string,
+  compositeScore: number,
+): Pick<Decision, 'reasoning' | 'recommendedAction'> {
   return {
     reasoning: `Judge fallback summary for event ${eventId}: the decision was computed from weighted agent confidence after rebuttal adjustments because judge synthesis was unavailable.`,
     recommendedAction:

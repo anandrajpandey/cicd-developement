@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { PipelineEvent } from '@agentic-cicd/shared-types';
 
 import { loadEnv } from '../env.js';
+import { executeAdkWorkflow, getAdkWorkflowSummary } from '../adk/workflow.js';
 import {
   runCrossChallenges,
   runInitialAnalysis,
@@ -30,21 +31,33 @@ Node.js version: 22.15.0`,
 };
 
 async function main(): Promise<void> {
-  const findings = await runInitialAnalysis(sampleEvent, { persist: false });
-  const challengeResults = await runCrossChallenges(findings, { persist: false });
-  const rebuttalResults = await runRebuttals(findings, challengeResults, { persist: false });
+  const adkWorkflow = getAdkWorkflowSummary();
+  const adkExecution = await executeAdkWorkflow(sampleEvent);
+  const initialAnalysis = await runInitialAnalysis(sampleEvent, { persist: false });
+  const challengeResults = await runCrossChallenges(initialAnalysis.data, { persist: false });
+  const rebuttalResults = await runRebuttals(initialAnalysis.data, challengeResults.data, {
+    persist: false,
+  });
   const decision = await runJudgeSynthesis(
     sampleEvent,
-    findings,
-    challengeResults,
-    rebuttalResults,
+    initialAnalysis.data,
+    challengeResults.data,
+    rebuttalResults.data,
+    {
+      round0: initialAnalysis.source,
+      round1: challengeResults.source,
+      round2: rebuttalResults.source,
+      round3: 'NATIVE',
+    },
     { persist: false },
   );
 
   console.log(
     JSON.stringify(
       {
-        findings,
+        adkWorkflow,
+        adkExecution,
+        findings: initialAnalysis,
         challengeResults,
         rebuttalResults,
         decision,

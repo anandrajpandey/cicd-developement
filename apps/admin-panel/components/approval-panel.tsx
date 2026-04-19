@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 
-import { submitApproval } from '../lib/orchestrator';
+import { trpcClient } from '../lib/trpc/client';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Textarea } from './ui/textarea';
 
 export function ApprovalPanel({ decisionId }: { decisionId: string }) {
   const [justification, setJustification] = useState('');
@@ -10,7 +13,7 @@ export function ApprovalPanel({ decisionId }: { decisionId: string }) {
 
   async function handle(action: 'APPROVE' | 'REJECT') {
     try {
-      await submitApproval({
+      await trpcClient.submitApproval.mutate({
         decisionId,
         approver: 'admin@local.dev',
         action,
@@ -24,25 +27,28 @@ export function ApprovalPanel({ decisionId }: { decisionId: string }) {
   }
 
   return (
-    <div className="panel p-6">
-      <p className="eyebrow">Human Gate</p>
-      <h3 className="mt-2 text-xl font-semibold text-white">Approval Required</h3>
-      <textarea
-        rows={5}
-        value={justification}
-        onChange={(event) => setJustification(event.target.value)}
-        placeholder="Explain why this remediation should be approved or rejected."
-        className="mt-5 w-full rounded-3xl border bg-black/25 px-4 py-4 text-sm text-mist outline-none focus:border-mint/50"
-      />
-      <div className="mt-5 flex gap-3">
-        <button type="button" onClick={() => void handle('APPROVE')} className="rounded-2xl bg-mint px-4 py-3 text-sm font-semibold text-ink">
-          Approve
-        </button>
-        <button type="button" onClick={() => void handle('REJECT')} className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm font-semibold text-rose-100">
-          Reject
-        </button>
-      </div>
-      {status ? <p className="mt-4 text-sm text-mist/70">{status}</p> : null}
-    </div>
+    <Card>
+      <CardHeader className="pb-5">
+        <p className="eyebrow">Human Gate</p>
+        <CardTitle className="mt-2">Approval Required</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Textarea
+          rows={5}
+          value={justification}
+          onChange={(event) => setJustification(event.target.value)}
+          placeholder="Explain why this remediation should be approved or rejected."
+        />
+        <div className="mt-5 flex gap-3">
+          <Button type="button" onClick={() => void handle('APPROVE')}>
+            Approve
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void handle('REJECT')}>
+            Reject
+          </Button>
+        </div>
+        {status ? <p className="mt-4 text-sm text-mist/70">{status}</p> : null}
+      </CardContent>
+    </Card>
   );
 }

@@ -2,6 +2,7 @@ import type { NextAuthConfig } from 'next-auth';
 
 const authConfig = {
   trustHost: true,
+  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? 'local-dev-secret-change-me',
   providers: [],
   session: {
     strategy: 'jwt',

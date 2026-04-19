@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { startTransition, useState } from 'react';
 
-import { fetchGitHubDiff, submitEvent } from '../lib/orchestrator';
+import { Button } from './ui/button';
+import { Card, CardContent } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select } from './ui/select';
+import { Textarea } from './ui/textarea';
+import { trpcClient } from '../lib/trpc/client';
 
 const defaultErrorLog = `Build failed during bundling.
 Module not found: Can't resolve '@agentic-cicd/shared-types'
@@ -30,7 +36,10 @@ export function EventSubmitForm() {
           throw new Error('GitHub PR URL must look like github.com/owner/repo/pull/123');
         }
 
-        const diff = await fetchGitHubDiff(match[1], Number(match[2]));
+        const diff = await trpcClient.githubDiff.query({
+          repo: match[1],
+          pr: Number(match[2]),
+        });
         finalErrorLog = diff.diff;
       }
 
@@ -44,7 +53,7 @@ export function EventSubmitForm() {
         timestamp: new Date().toISOString(),
       };
 
-      const response = await submitEvent(payload);
+      const response = await trpcClient.submitEvent.mutate(payload);
 
       startTransition(() => {
         router.push(`/events/${response.eventId}`);
@@ -57,68 +66,67 @@ export function EventSubmitForm() {
   }
 
   return (
-    <form action={onSubmit} className="panel space-y-6 p-6">
-      <div className="grid gap-4 md:grid-cols-2">
-        <label className="space-y-2 text-sm text-mist/80">
-          <span>Repository</span>
-          <input name="repository" defaultValue="anandrajpandey/cicd-developement" className="w-full rounded-2xl border bg-black/20 px-4 py-3 text-white outline-none focus:border-mint/50" />
-        </label>
-        <label className="space-y-2 text-sm text-mist/80">
-          <span>Commit SHA</span>
-          <input name="commitSha" defaultValue="HEAD" className="w-full rounded-2xl border bg-black/20 px-4 py-3 text-white outline-none focus:border-mint/50" />
-        </label>
-        <label className="space-y-2 text-sm text-mist/80">
-          <span>Branch</span>
-          <input name="branch" defaultValue="main" className="w-full rounded-2xl border bg-black/20 px-4 py-3 text-white outline-none focus:border-mint/50" />
-        </label>
-        <label className="space-y-2 text-sm text-mist/80">
-          <span>Failure Type</span>
-          <select name="failureType" defaultValue="build_failure" className="w-full rounded-2xl border bg-black/20 px-4 py-3 text-white outline-none focus:border-mint/50">
-            <option value="build_failure">build_failure</option>
-            <option value="test_failure">test_failure</option>
-            <option value="lint_error">lint_error</option>
-          </select>
-        </label>
-      </div>
+    <Card>
+      <CardContent className="space-y-6 p-6">
+        <form action={onSubmit} className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Label>
+              <span>Repository</span>
+              <Input name="repository" defaultValue="anandrajpandey/cicd-developement" />
+            </Label>
+            <Label>
+              <span>Commit SHA</span>
+              <Input name="commitSha" defaultValue="HEAD" />
+            </Label>
+            <Label>
+              <span>Branch</span>
+              <Input name="branch" defaultValue="main" />
+            </Label>
+            <Label>
+              <span>Failure Type</span>
+              <Select name="failureType" defaultValue="build_failure">
+                <option value="build_failure">build_failure</option>
+                <option value="test_failure">test_failure</option>
+                <option value="lint_error">lint_error</option>
+              </Select>
+            </Label>
+          </div>
 
-      <label className="block space-y-2 text-sm text-mist/80">
-        <span>Optional GitHub PR URL</span>
-        <input
-          value={prUrl}
-          onChange={(event) => setPrUrl(event.target.value)}
-          placeholder="https://github.com/owner/repo/pull/123"
-          className="w-full rounded-2xl border bg-black/20 px-4 py-3 text-white outline-none focus:border-mint/50"
-        />
-      </label>
+          <Label className="block">
+            <span>Optional GitHub PR URL</span>
+            <Input
+              value={prUrl}
+              onChange={(event) => setPrUrl(event.target.value)}
+              placeholder="https://github.com/owner/repo/pull/123"
+            />
+          </Label>
 
-      <label className="block space-y-2 text-sm text-mist/80">
-        <span>Error Log</span>
-        <textarea
-          rows={12}
-          value={errorLog}
-          onChange={(event) => setErrorLog(event.target.value)}
-          className="w-full rounded-3xl border bg-black/25 px-4 py-4 font-mono text-sm text-mist outline-none focus:border-mint/50"
-        />
-      </label>
+          <Label className="block">
+            <span>Error Log</span>
+            <Textarea
+              rows={12}
+              value={errorLog}
+              onChange={(event) => setErrorLog(event.target.value)}
+              className="font-mono"
+            />
+          </Label>
 
-      {errorMessage ? (
-        <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-          {errorMessage}
-        </div>
-      ) : null}
+          {errorMessage ? (
+            <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+              {errorMessage}
+            </div>
+          ) : null}
 
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-mist/60">
-          Submitting triggers the debate loop and redirects to the live event view.
-        </p>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink transition hover:bg-[#84f7b1] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSubmitting ? 'Launching debate...' : 'Submit Event'}
-        </button>
-      </div>
-    </form>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-mist/60">
+              Submitting triggers the debate loop and redirects to the live event view.
+            </p>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Launching debate...' : 'Submit Event'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

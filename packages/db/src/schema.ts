@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -37,6 +38,20 @@ export const pipelineEvents = pgTable(
   (table) => ({
     repositoryIdx: index('pipeline_events_repository_idx').on(table.repository),
     failureTypeIdx: index('pipeline_events_failure_type_idx').on(table.failureType),
+  }),
+);
+
+export const users = pgTable(
+  'users',
+  {
+    userId: uuid('user_id').primaryKey(),
+    email: varchar('email', { length: 255 }).notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: varchar('role', { length: 32 }).notNull().default('admin'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    emailUniqueIdx: uniqueIndex('users_email_unique_idx').on(table.email),
   }),
 );
 
@@ -120,6 +135,20 @@ export const decisions = pgTable(
     riskTier: varchar('risk_tier', { length: 16, enum: riskTierValues }).notNull(),
     reasoning: text('reasoning').notNull(),
     recommendedAction: text('recommended_action').notNull(),
+    executionMeta: jsonb('execution_meta')
+      .$type<{
+        round0: 'ADK' | 'NATIVE';
+        round1: 'ADK' | 'NATIVE';
+        round2: 'ADK' | 'NATIVE';
+        round3: 'ADK' | 'NATIVE';
+      }>()
+      .notNull()
+      .default({
+        round0: 'NATIVE',
+        round1: 'NATIVE',
+        round2: 'NATIVE',
+        round3: 'NATIVE',
+      }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({

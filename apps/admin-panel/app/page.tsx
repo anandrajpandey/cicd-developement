@@ -3,20 +3,14 @@ import Link from 'next/link';
 import { ArrowRight, Flame, ShieldAlert, Waves } from 'lucide-react';
 
 import { RiskBadge } from '../components/risk-badge';
-import { listApprovalQueue, listDecisions } from '../lib/orchestrator';
+import { getTrpcCaller } from '../lib/trpc/server';
 
 export default async function DashboardPage() {
-  const decisions = await listDecisions();
-  const approvals = await listApprovalQueue();
-
-  const total = decisions.length;
-  const low = decisions.filter((item) => item.riskTier === 'LOW').length;
-  const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
-  const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
-  const average =
-    total === 0
-      ? 0
-      : decisions.reduce((sum, item) => sum + item.compositeScore, 0) / decisions.length;
+  const caller = await getTrpcCaller();
+  const [summary, decisions] = await Promise.all([
+    caller.dashboardSummary(),
+    caller.recentDecisions(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -32,10 +26,16 @@ export default async function DashboardPage() {
               only when MEDIUM or HIGH decisions need a human gate.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/events/new" className="rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink">
+              <Link
+                href="/events/new"
+                className="rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink"
+              >
                 Submit Event
               </Link>
-              <Link href="/approvals" className="rounded-2xl border border-line px-5 py-3 text-sm font-semibold text-white">
+              <Link
+                href="/approvals"
+                className="rounded-2xl border border-line px-5 py-3 text-sm font-semibold text-white"
+              >
                 Open Approval Queue
               </Link>
             </div>
@@ -47,25 +47,29 @@ export default async function DashboardPage() {
                 <Waves className="h-5 w-5 text-mint" />
                 <span className="text-sm text-mist/70">Total Events</span>
               </div>
-              <div className="mt-4 text-4xl font-semibold text-white">{total}</div>
+              <div className="mt-4 text-4xl font-semibold text-white">{summary.totalEvents}</div>
             </div>
             <div className="metric-card">
               <div className="flex items-center gap-3">
                 <ShieldAlert className="h-5 w-5 text-mint" />
                 <span className="text-sm text-mist/70">Pending Approvals</span>
               </div>
-              <div className="mt-4 text-4xl font-semibold text-white">{approvals.length}</div>
+              <div className="mt-4 text-4xl font-semibold text-white">
+                {summary.pendingApprovals}
+              </div>
             </div>
             <div className="metric-card sm:col-span-2">
               <div className="flex items-center gap-3">
                 <Flame className="h-5 w-5 text-mint" />
                 <span className="text-sm text-mist/70">Average Composite Score</span>
               </div>
-              <div className="mt-4 text-4xl font-semibold text-white">{(average * 100).toFixed(0)}</div>
+              <div className="mt-4 text-4xl font-semibold text-white">
+                {(summary.avgCompositeScore * 100).toFixed(0)}
+              </div>
               <div className="mt-5 flex gap-2 text-xs">
-                <span className="badge badge-low">{low} low</span>
-                <span className="badge badge-medium">{medium} medium</span>
-                <span className="badge badge-high">{high} high</span>
+                <span className="badge badge-low">{summary.low} low</span>
+                <span className="badge badge-medium">{summary.medium} medium</span>
+                <span className="badge badge-high">{summary.high} high</span>
               </div>
             </div>
           </div>

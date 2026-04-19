@@ -2,7 +2,16 @@ import type { Server as HttpServer } from 'node:http';
 
 import { Server as SocketIOServer } from 'socket.io';
 
-import type { AgentFinding, Challenge, Decision, PipelineEvent, Rebuttal } from '@agentic-cicd/shared-types';
+import type {
+  AgentFinding,
+  Challenge,
+  Decision,
+  PipelineEvent,
+  Rebuttal,
+} from '@agentic-cicd/shared-types';
+
+import { logger } from './logger.js';
+import { initializeRedisSubscriber, publishDebateEvent } from './redis.js';
 
 let io: SocketIOServer | null = null;
 
@@ -31,7 +40,28 @@ export interface DebateRealtimePayloads {
   };
 }
 
-export function initializeRealtime(server: HttpServer): SocketIOServer {
+interface DebateEventEnvelope<
+  K extends keyof DebateRealtimePayloads = keyof DebateRealtimePayloads,
+> {
+  eventName: K;
+  eventId: string;
+  payload: DebateRealtimePayloads[K];
+}
+
+async function handleRedisMessage(_channel: string, rawPayload: string): Promise<void> {
+  if (!io) {
+    return;
+  }
+
+  try {
+    const message = JSON.parse(rawPayload) as DebateEventEnvelope;
+    io.to(`debate:${message.eventId}`).emit(message.eventName, message.payload);
+  } catch (error) {
+    logger.error('Failed to parse debate event from Redis.', { error, rawPayload });
+  }
+}
+
+export async function initializeRealtime(server: HttpServer): Promise<SocketIOServer> {
   if (io) {
     return io;
   }
@@ -52,22 +82,42 @@ export function initializeRealtime(server: HttpServer): SocketIOServer {
     });
   });
 
+  await initializeRedisSubscriber((channel, payload) => {
+    void handleRedisMessage(channel, payload);
+  });
+
   return io;
 }
 
-export function emitDebateEvent<K extends keyof DebateRealtimePayloads>(
+export async function emitDebateEvent<K extends keyof DebateRealtimePayloads>(
   eventName: K,
   eventId: string,
   payload: DebateRealtimePayloads[K],
-): void {
-  if (!io) {
-    return;
-  }
+): Promise<void> {
+  const message: DebateEventEnvelope<K> = {
+    eventName,
+    eventId,
+    payload,
+  };
 
-  io.to(`debate:${eventId}`).emit(eventName, payload);
+  try {
+    await publishDebateEvent(JSON.stringify(message));
+  } catch (error) {
+    logger.error('Failed to publish debate event to Redis.', {
+      error,
+      eventName,
+      eventId,
+    });
+
+    if (io) {
+      io.to(`debate:${eventId}`).emit(eventName, payload);
+    }
+  }
 }
 
-export function createDebateStartedPayload(event: PipelineEvent): DebateRealtimePayloads['debate:started'] {
+export function createDebateStartedPayload(
+  event: PipelineEvent,
+): DebateRealtimePayloads['debate:started'] {
   return {
     eventId: event.eventId,
     repository: event.repository,

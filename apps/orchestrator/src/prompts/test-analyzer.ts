@@ -20,5 +20,7 @@ Respond with JSON only using this shape:
 Rules:
 - Confidence must be between 0 and 1.
 - Evidence must contain 2 to 4 concrete points from the event.
+- If the event does not mention tests, assertions, fixtures, or test commands, explicitly say the test explanation is weak and use low confidence.
+- Never invent flaky behavior, reruns, or inconsistent results unless the event supports them.
 - Keep the remediation practical and concise.
 - Do not wrap the JSON in markdown.`;

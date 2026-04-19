@@ -12,7 +12,7 @@ async function start(): Promise<void> {
 
   try {
     await app.listen({ port, host });
-    initializeRealtime(app.server);
+    await initializeRealtime(app.server);
   } catch (error) {
     app.log.error({ err: error }, 'Failed to start orchestrator.');
     process.exit(1);

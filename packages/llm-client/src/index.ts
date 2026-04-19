@@ -25,7 +25,42 @@ class LlmClientError extends Error {
   }
 }
 
-function getGroqClient(): Groq {
+interface GroqCompletionClient {
+  chat: {
+    completions: {
+      create: (params: { model: string; messages: ChatMessage[]; temperature: number }) => Promise<{
+        choices: Array<{
+          message?: {
+            content?: string | null;
+          };
+        }>;
+      }>;
+    };
+  };
+}
+
+interface FetchResponseLike {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+}
+
+interface ChatClientDependencies {
+  createGroqClient?: () => GroqCompletionClient;
+  fetchFn?: (
+    input: string,
+    init: {
+      method: string;
+      headers: Record<string, string>;
+      body: string;
+      signal: AbortSignal;
+    },
+  ) => Promise<FetchResponseLike>;
+  sleepFn?: (ms: number) => Promise<void>;
+  timeoutMs?: number;
+}
+
+function getGroqClient(): GroqCompletionClient {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
@@ -91,13 +126,15 @@ function toLlmClientError(error: unknown, provider: 'groq' | 'ollama'): LlmClien
 
   const status = getErrorStatus(error);
   const retryable = status !== undefined && RETRYABLE_STATUS_CODES.has(status);
-  const message =
-    error instanceof Error ? error.message : `Unknown ${provider} request failure.`;
+  const message = error instanceof Error ? error.message : `Unknown ${provider} request failure.`;
 
   return new LlmClientError(message, retryable, status, { cause: error });
 }
 
-async function withRetries<T>(operation: () => Promise<T>): Promise<T> {
+async function withRetries<T>(
+  operation: () => Promise<T>,
+  sleepFn: (ms: number) => Promise<void>,
+): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
@@ -110,23 +147,29 @@ async function withRetries<T>(operation: () => Promise<T>): Promise<T> {
         throw error;
       }
 
-      await sleep(getRetryDelay(attempt));
+      await sleepFn(getRetryDelay(attempt));
     }
   }
 
   throw lastError;
 }
 
-async function requestGroq(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL): Promise<string> {
-  const groq = getGroqClient();
+async function requestGroq(
+  messages: ChatMessage[],
+  model: string,
+  deps: Required<ChatClientDependencies>,
+): Promise<string> {
+  const groq = deps.createGroqClient();
 
   try {
-    const completion = await withRetries(() =>
-      groq.chat.completions.create({
-        model,
-        messages,
-        temperature: 0.2,
-      }),
+    const completion = await withRetries(
+      () =>
+        groq.chat.completions.create({
+          model,
+          messages,
+          temperature: 0.2,
+        }),
+      deps.sleepFn,
     );
 
     const content = completion.choices[0]?.message?.content;
@@ -143,11 +186,12 @@ async function requestGroq(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL):
 
 async function requestOllama(
   messages: ChatMessage[],
-  model = DEFAULT_OLLAMA_MODEL,
+  model: string,
+  deps: Required<ChatClientDependencies>,
 ): Promise<string> {
   try {
     const response = await withRetries(async () => {
-      const request = await fetch(`${getOllamaBaseUrl()}/api/chat`, {
+      const request = await deps.fetchFn(`${getOllamaBaseUrl()}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -160,7 +204,7 @@ async function requestOllama(
             temperature: 0.2,
           },
         }),
-        signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+        signal: AbortSignal.timeout(deps.timeoutMs),
       });
 
       if (!request.ok) {
@@ -172,7 +216,7 @@ async function requestOllama(
       }
 
       return request;
-    });
+    }, deps.sleepFn);
 
     const payload = (await response.json()) as {
       message?: {
@@ -192,23 +236,35 @@ async function requestOllama(
   }
 }
 
-export async function chat(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL): Promise<string> {
-  try {
-    return await Promise.race([
-      requestGroq(messages, model),
-      new Promise<string>((_, reject) => {
-        setTimeout(() => {
-          reject(new LlmClientError('groq request timed out.', true));
-        }, DEFAULT_TIMEOUT_MS);
-      }),
-    ]);
-  } catch (error) {
-    const normalizedError = toLlmClientError(error, 'groq');
+export function createChatClient(overrides: ChatClientDependencies = {}) {
+  const deps: Required<ChatClientDependencies> = {
+    createGroqClient: overrides.createGroqClient ?? getGroqClient,
+    fetchFn:
+      overrides.fetchFn ?? ((input, init) => fetch(input, init) as Promise<FetchResponseLike>),
+    sleepFn: overrides.sleepFn ?? sleep,
+    timeoutMs: overrides.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  };
 
-    if (!normalizedError.retryable) {
-      throw normalizedError;
+  return async function chat(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL): Promise<string> {
+    try {
+      return await Promise.race([
+        requestGroq(messages, model, deps),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => {
+            reject(new LlmClientError('groq request timed out.', true));
+          }, deps.timeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      const normalizedError = toLlmClientError(error, 'groq');
+
+      if (!normalizedError.retryable) {
+        throw normalizedError;
+      }
+
+      return requestOllama(messages, DEFAULT_OLLAMA_MODEL, deps);
     }
-
-    return requestOllama(messages);
-  }
+  };
 }
+
+export const chat = createChatClient();

@@ -12,20 +12,20 @@ const config: Config = {
         mint: '#6df2a3',
         signal: '#33c46c',
         glow: '#163c2b',
-        line: '#254634'
+        line: '#254634',
       },
       boxShadow: {
-        panel: '0 24px 80px rgba(0, 0, 0, 0.35)'
+        panel: '0 24px 80px rgba(0, 0, 0, 0.35)',
       },
       backgroundImage: {
-        grid: 'linear-gradient(rgba(109,242,163,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(109,242,163,0.08) 1px, transparent 1px)'
+        grid: 'linear-gradient(rgba(109,242,163,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(109,242,163,0.08) 1px, transparent 1px)',
       },
       fontFamily: {
-        sans: ['ui-sans-serif', 'system-ui', 'sans-serif']
-      }
-    }
+        sans: ['ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
+    },
   },
-  plugins: []
+  plugins: [],
 };
 
 export default config;

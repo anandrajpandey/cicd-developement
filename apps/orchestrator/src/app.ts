@@ -5,6 +5,7 @@ import { loadEnv } from './env.js';
 import { githubRoutes } from './routes/github.js';
 import { decisionRoutes } from './routes/decisions.js';
 import { eventRoutes } from './routes/events.js';
+import { systemRoutes } from './routes/system.js';
 
 export function buildApp() {
   loadEnv();
@@ -35,6 +36,7 @@ export function buildApp() {
   app.register(eventRoutes);
   app.register(githubRoutes);
   app.register(decisionRoutes);
+  app.register(systemRoutes);
 
   return app;
 }

@@ -8,7 +8,10 @@ export default function NotFoundPage() {
       <p className="mt-3 text-sm text-mist/70">
         The requested debate record is not available yet or the decision has not been created.
       </p>
-      <Link href="/" className="mt-6 inline-flex rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink">
+      <Link
+        href="/"
+        className="mt-6 inline-flex rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink"
+      >
         Return to dashboard
       </Link>
     </div>
