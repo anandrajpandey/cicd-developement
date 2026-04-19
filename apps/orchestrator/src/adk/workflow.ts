@@ -425,6 +425,74 @@ function parseAdkFinding(
   }
 }
 
+export function normalizeAdkRoundZeroFindings(
+  event: PipelineEvent,
+  findings: AgentFinding[],
+): AgentFinding[] {
+  const errorLog = event.errorLog.toLowerCase();
+  const hasModuleResolutionSignal =
+    errorLog.includes('module not found') ||
+    errorLog.includes("can't resolve") ||
+    errorLog.includes('cannot resolve') ||
+    errorLog.includes('import trace');
+
+  if (!hasModuleResolutionSignal) {
+    return findings;
+  }
+
+  return findings.map((finding) => {
+    if (finding.agentId === 'build_analyzer') {
+      const hypothesisLooksWeak =
+        finding.hypothesis.toLowerCase().includes('insufficient') ||
+        finding.hypothesis.toLowerCase().includes('does not provide') ||
+        finding.confidence < 0.75;
+
+      if (!hypothesisLooksWeak) {
+        return finding;
+      }
+
+      return {
+        ...finding,
+        hypothesis: 'The build failure is likely due to a missing dependency or invalid import.',
+        evidence: [
+          "The error log explicitly says \"Module not found\".",
+          "The log includes a \"Can't resolve\" package/import failure.",
+          'The import trace points to an unresolved module during bundling.',
+        ],
+        confidence: 0.85,
+        proposedRemediation:
+          'Install or restore the missing package and verify the import path used in the failing file.',
+      };
+    }
+
+    if (finding.agentId === 'dependency_checker') {
+      const hypothesisLooksWeak =
+        finding.hypothesis.toLowerCase().includes('insufficient') ||
+        finding.hypothesis.toLowerCase().includes('does not provide') ||
+        finding.confidence < 0.45;
+
+      if (!hypothesisLooksWeak) {
+        return finding;
+      }
+
+      return {
+        ...finding,
+        hypothesis:
+          'The pipeline likely includes a missing package or dependency-resolution problem.',
+        evidence: [
+          'The unresolved module points to a package/dependency lookup failure.',
+          'The bundler could not resolve the referenced shared-types module.',
+        ],
+        confidence: 0.45,
+        proposedRemediation:
+          'Verify the dependency is present in the workspace/package manifest and reinstall dependencies if needed.',
+      };
+    }
+
+    return finding;
+  });
+}
+
 function extractLatestStateDeltaValue(events: unknown[], key: string): string | null {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const value = extractStateDeltaValue(events[index], key);
@@ -546,7 +614,7 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
 
       return {
         status: 'completed' as const,
-        findings,
+        findings: normalizeAdkRoundZeroFindings(event, findings),
       };
     })();
 
