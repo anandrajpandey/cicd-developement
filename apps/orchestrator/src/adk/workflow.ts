@@ -455,8 +455,8 @@ export function normalizeAdkRoundZeroFindings(
         ...finding,
         hypothesis: 'The build failure is likely due to a missing dependency or invalid import.',
         evidence: [
-          "The error log explicitly says \"Module not found\".",
-          "The log includes a \"Can't resolve\" package/import failure.",
+          'The error log explicitly says "Module not found".',
+          'The log includes a "Can\'t resolve" package/import failure.',
           'The import trace points to an unresolved module during bundling.',
         ],
         confidence: 0.85,

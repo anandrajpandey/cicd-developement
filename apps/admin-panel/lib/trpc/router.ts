@@ -49,6 +49,12 @@ export const appRouter = t.router({
     const low = decisions.filter((item) => item.riskTier === 'LOW').length;
     const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
     const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
+    const adkDominant = decisions.filter((item) =>
+      Object.values(item.executionMeta).every((source) => source === 'ADK'),
+    ).length;
+    const fallbackTouched = decisions.filter((item) =>
+      Object.values(item.executionMeta).some((source) => source === 'NATIVE'),
+    ).length;
     const avgCompositeScore =
       totalEvents === 0
         ? 0
@@ -61,6 +67,8 @@ export const appRouter = t.router({
       low,
       medium,
       high,
+      adkDominant,
+      fallbackTouched,
     };
   }),
   decisionByEventId: t.procedure.input(z.string().uuid()).query(async ({ input }) => {

@@ -6,6 +6,8 @@ import { io, type Socket } from 'socket.io-client';
 
 import type { DecisionDetail } from '../lib/orchestrator';
 import { cn } from '../lib/utils';
+import { ExecutionPathStrip } from './execution-path-strip';
+import { ExecutionStatusCard } from './execution-status-card';
 import { RiskBadge } from './risk-badge';
 
 type LiveState = {
@@ -95,20 +97,14 @@ export function LiveDebateView({
         </div>
 
         {state.decision?.executionMeta ? (
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            {Object.entries(state.decision.executionMeta).map(([round, source]) => (
-              <div key={round} className="rounded-2xl border border-line bg-black/15 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-mist/55">{round}</p>
-                <p
-                  className={cn(
-                    'mt-2 text-sm font-semibold',
-                    source === 'ADK' ? 'text-mint' : 'text-amber-200',
-                  )}
-                >
-                  {source}
-                </p>
+          <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-line bg-black/15 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-mist/55">Execution Path</p>
+              <div className="mt-3">
+                <ExecutionPathStrip meta={state.decision.executionMeta} />
               </div>
-            ))}
+            </div>
+            <ExecutionStatusCard meta={state.decision.executionMeta} />
           </div>
         ) : null}
 

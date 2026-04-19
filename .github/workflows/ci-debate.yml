@@ -1,0 +1,170 @@
+name: CI Debate Intake
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-and-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Run lint
+        id: lint
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          corepack pnpm lint 2>&1 | tee lint.log
+
+      - name: Run tests
+        id: test
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          corepack pnpm test 2>&1 | tee test.log
+
+      - name: Run typecheck
+        id: typecheck
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          corepack pnpm typecheck 2>&1 | tee typecheck.log
+
+      - name: Run build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          corepack pnpm build 2>&1 | tee build.log
+
+      - name: Report failure to orchestrator
+        if: >
+          always() &&
+          env.ORCHESTRATOR_URL != '' &&
+          (
+            steps.lint.outcome == 'failure' ||
+            steps.test.outcome == 'failure' ||
+            steps.typecheck.outcome == 'failure' ||
+            steps.build.outcome == 'failure'
+          )
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url || '' }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOB_NAME: ${{ github.job }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          import uuid
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          outcomes = {
+              "lint": os.environ["LINT_OUTCOME"],
+              "test": os.environ["TEST_OUTCOME"],
+              "typecheck": os.environ["TYPECHECK_OUTCOME"],
+              "build": os.environ["BUILD_OUTCOME"],
+          }
+
+          failure_type = "build_failure"
+          if outcomes["lint"] == "failure":
+              failure_type = "lint_error"
+          elif outcomes["test"] == "failure":
+              failure_type = "test_failure"
+
+          sections = [
+              "GitHub workflow: CI Debate Intake",
+              f"Repository: {os.environ['REPOSITORY']}",
+              f"Branch: {os.environ['BRANCH_NAME']}",
+              f"Commit: {os.environ['COMMIT_SHA']}",
+              f"Pull Request: {os.environ.get('PR_URL') or 'none'}",
+              "",
+              "Step outcomes:",
+          ]
+
+          for step_name, outcome in outcomes.items():
+              sections.append(f"- {step_name}: {outcome}")
+
+          for file_name in ("lint.log", "test.log", "typecheck.log", "build.log"):
+              path = Path(file_name)
+              if path.exists():
+                  sections.extend(["", f"===== {file_name} =====", path.read_text(encoding="utf-8")])
+
+          error_log = "\n".join(sections)
+          event_seed = f"{os.environ['RUN_ID']}-{os.environ['RUN_ATTEMPT']}-{os.environ['JOB_NAME']}"
+
+          payload = {
+              "eventId": str(uuid.uuid5(uuid.NAMESPACE_URL, event_seed)),
+              "repository": os.environ["REPOSITORY"],
+              "commitSha": os.environ["COMMIT_SHA"],
+              "branch": os.environ["BRANCH_NAME"],
+              "failureType": failure_type,
+              "errorLog": error_log,
+              "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+          }
+
+          request = urllib.request.Request(
+              url=f"{os.environ['ORCHESTRATOR_URL'].rstrip('/')}/api/events",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=20) as response:
+              print(response.read().decode("utf-8"))
+          PY
+
+      - name: Fail workflow if any validation failed
+        if: >
+          steps.lint.outcome == 'failure' ||
+          steps.test.outcome == 'failure' ||
+          steps.typecheck.outcome == 'failure' ||
+          steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "One or more validation steps failed."
+          exit 1

@@ -43,7 +43,8 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = decisionParamsSchema.parse(request.params);
 
     const decisionRow = await db.query.decisions.findFirst({
-      where: (fields, operators) => operators.eq(fields.decisionId, id),
+      where: (fields, operators) =>
+        operators.or(operators.eq(fields.decisionId, id), operators.eq(fields.eventId, id)),
     });
 
     if (!decisionRow) {

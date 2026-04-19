@@ -2,6 +2,8 @@ import Link from 'next/link';
 
 import { ArrowRight, Flame, ShieldAlert, Waves } from 'lucide-react';
 
+import { ExecutionPathStrip, getAdkCoverage } from '../components/execution-path-strip';
+import { ExecutionStatusCard } from '../components/execution-status-card';
 import { RiskBadge } from '../components/risk-badge';
 import { getTrpcCaller } from '../lib/trpc/server';
 
@@ -58,7 +60,17 @@ export default async function DashboardPage() {
                 {summary.pendingApprovals}
               </div>
             </div>
-            <div className="metric-card sm:col-span-2">
+            <div className="metric-card">
+              <div className="flex items-center gap-3">
+                <ShieldAlert className="h-5 w-5 text-mint" />
+                <span className="text-sm text-mist/70">ADK-backed Decisions</span>
+              </div>
+              <div className="mt-4 text-4xl font-semibold text-white">{summary.adkDominant}</div>
+              <div className="mt-3 text-xs text-mist/60">
+                {summary.fallbackTouched} decisions touched fallback logic
+              </div>
+            </div>
+            <div className="metric-card">
               <div className="flex items-center gap-3">
                 <Flame className="h-5 w-5 text-mint" />
                 <span className="text-sm text-mist/70">Average Composite Score</span>
@@ -82,6 +94,12 @@ export default async function DashboardPage() {
           <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline outcomes</h2>
         </div>
 
+        {decisions[0]?.executionMeta ? (
+          <div className="mt-6">
+            <ExecutionStatusCard meta={decisions[0].executionMeta} />
+          </div>
+        ) : null}
+
         <div className="mt-6 space-y-3">
           {decisions.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-line p-8 text-sm text-mist/60">
@@ -100,8 +118,17 @@ export default async function DashboardPage() {
                     <RiskBadge tier={item.riskTier} />
                   </div>
                   <p className="mt-2 truncate text-sm text-mist/65">
-                    {item.branch} • {item.failureType}
+                    {item.branch} / {item.failureType}
                   </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <ExecutionPathStrip meta={item.executionMeta} compact />
+                    <span className="text-xs uppercase tracking-[0.16em] text-mist/50">
+                      {Math.round(getAdkCoverage(item.executionMeta).ratio * 100)}% ADK
+                    </span>
+                    <span className="text-xs uppercase tracking-[0.16em] text-mist/50">
+                      {Math.round(item.compositeScore * 100)} score
+                    </span>
+                  </div>
                 </div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-mint" />
               </Link>

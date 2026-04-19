@@ -1,6 +1,8 @@
 import Link from 'next/link';
 
+import { ExecutionPathStrip } from '../../components/execution-path-strip';
 import { RiskBadge } from '../../components/risk-badge';
+import { SlaBadge } from '../../components/sla-badge';
 import { getTrpcCaller } from '../../lib/trpc/server';
 
 export default async function ApprovalQueuePage() {
@@ -34,10 +36,14 @@ export default async function ApprovalQueuePage() {
                   <div className="flex items-center gap-3">
                     <p className="truncate text-sm font-medium text-white">{item.repository}</p>
                     <RiskBadge tier={item.riskTier} />
+                    <SlaBadge createdAt={item.createdAt} />
                   </div>
                   <p className="mt-2 truncate text-sm text-mist/65">
-                    {item.branch} • {(item.compositeScore * 100).toFixed(0)} score
+                    {item.branch} / {(item.compositeScore * 100).toFixed(0)} score
                   </p>
+                  <div className="mt-3">
+                    <ExecutionPathStrip meta={item.executionMeta} compact />
+                  </div>
                 </div>
                 <div className="text-xs uppercase tracking-[0.2em] text-mint/80">Review</div>
               </Link>
