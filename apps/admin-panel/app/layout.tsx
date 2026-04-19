@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 import './globals.css';
 
-import { Shell } from '../components/shell';
+import { AppFrame } from '../components/app-frame';
 
 export const metadata: Metadata = {
   title: 'Agentic CI/CD Admin',
@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Shell>{children}</Shell>
+        <AppFrame>{children}</AppFrame>
       </body>
     </html>
   );

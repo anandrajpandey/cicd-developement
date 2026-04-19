@@ -1,3 +1,5 @@
+'use client';
+
 import type { Route } from 'next';
 import Link from 'next/link';
 import type { PropsWithChildren } from 'react';
@@ -5,6 +7,7 @@ import type { PropsWithChildren } from 'react';
 import { Activity, ClipboardList, ShieldCheck, Waves } from 'lucide-react';
 
 import { cn } from '../lib/utils';
+import { SignOutButton } from './sign-out-button';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Activity },
@@ -45,11 +48,15 @@ export function Shell({ children }: PropsWithChildren) {
           </div>
 
           <div className="rounded-2xl border border-mint/15 bg-mint/8 p-4 text-sm text-mist/75">
-            <div className="mb-2 flex items-center gap-2 text-white">
-              <ClipboardList className="h-4 w-4 text-mint" />
-              <span className="font-medium">Single-admin MVP</span>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-white">
+                <ClipboardList className="h-4 w-4 text-mint" />
+                <span className="font-medium">Single-admin MVP</span>
+              </div>
+              <SignOutButton />
             </div>
-            <p>Credential flow and route protection can layer in next without reshaping the UI.</p>
+            <p className="mb-3">admin@local.dev</p>
+            <p>Credential flow and route protection are now active for the panel.</p>
           </div>
         </aside>
 

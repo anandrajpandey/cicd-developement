@@ -4,9 +4,12 @@
   "packageManager": "pnpm@10.18.0",
   "scripts": {
     "build": "turbo run build",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "db:migrate": "corepack pnpm --filter @agentic-cicd/db db:migrate",
+    "db:seed": "corepack pnpm --filter @agentic-cicd/db db:seed"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "turbo": "^2.1.3",
