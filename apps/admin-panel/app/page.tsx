@@ -1,0 +1,110 @@
+import Link from 'next/link';
+
+import { ArrowRight, Flame, ShieldAlert, Waves } from 'lucide-react';
+
+import { RiskBadge } from '../components/risk-badge';
+import { listApprovalQueue, listDecisions } from '../lib/orchestrator';
+
+export default async function DashboardPage() {
+  const decisions = await listDecisions();
+  const approvals = await listApprovalQueue();
+
+  const total = decisions.length;
+  const low = decisions.filter((item) => item.riskTier === 'LOW').length;
+  const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
+  const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
+  const average =
+    total === 0
+      ? 0
+      : decisions.reduce((sum, item) => sum + item.compositeScore, 0) / decisions.length;
+
+  return (
+    <div className="space-y-6">
+      <section className="panel overflow-hidden p-6">
+        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="eyebrow">Operations Surface</p>
+            <h1 className="mt-3 max-w-2xl text-4xl font-semibold tracking-tight text-white">
+              Live debate-driven release triage with a sharp, operator-first control plane.
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-mist/72">
+              Monitor event intake, compare agent positions, inspect risk synthesis, and step in
+              only when MEDIUM or HIGH decisions need a human gate.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/events/new" className="rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink">
+                Submit Event
+              </Link>
+              <Link href="/approvals" className="rounded-2xl border border-line px-5 py-3 text-sm font-semibold text-white">
+                Open Approval Queue
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="metric-card">
+              <div className="flex items-center gap-3">
+                <Waves className="h-5 w-5 text-mint" />
+                <span className="text-sm text-mist/70">Total Events</span>
+              </div>
+              <div className="mt-4 text-4xl font-semibold text-white">{total}</div>
+            </div>
+            <div className="metric-card">
+              <div className="flex items-center gap-3">
+                <ShieldAlert className="h-5 w-5 text-mint" />
+                <span className="text-sm text-mist/70">Pending Approvals</span>
+              </div>
+              <div className="mt-4 text-4xl font-semibold text-white">{approvals.length}</div>
+            </div>
+            <div className="metric-card sm:col-span-2">
+              <div className="flex items-center gap-3">
+                <Flame className="h-5 w-5 text-mint" />
+                <span className="text-sm text-mist/70">Average Composite Score</span>
+              </div>
+              <div className="mt-4 text-4xl font-semibold text-white">{(average * 100).toFixed(0)}</div>
+              <div className="mt-5 flex gap-2 text-xs">
+                <span className="badge badge-low">{low} low</span>
+                <span className="badge badge-medium">{medium} medium</span>
+                <span className="badge badge-high">{high} high</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel p-6">
+        <div>
+          <p className="eyebrow">Recent Decisions</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline outcomes</h2>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {decisions.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-line p-8 text-sm text-mist/60">
+              No decisions yet. Submit a pipeline event to start the debate flow.
+            </div>
+          ) : (
+            decisions.slice(0, 8).map((item) => (
+              <Link
+                key={item.decisionId}
+                href={`/events/${item.eventId}`}
+                className="flex items-center justify-between rounded-3xl border border-line bg-black/15 px-5 py-4 transition hover:border-mint/35 hover:bg-black/25"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <p className="truncate text-sm font-medium text-white">{item.repository}</p>
+                    <RiskBadge tier={item.riskTier} />
+                  </div>
+                  <p className="mt-2 truncate text-sm text-mist/65">
+                    {item.branch} • {item.failureType}
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-mint" />
+              </Link>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}

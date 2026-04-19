@@ -1,0 +1,26 @@
+{
+  "name": "@agentic-cicd/orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "analyze:sample": "tsx src/scripts/analyze-sample.ts"
+  },
+  "dependencies": {
+    "@agentic-cicd/db": "workspace:*",
+    "@agentic-cicd/llm-client": "workspace:*",
+    "@agentic-cicd/shared-types": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.36.4",
+    "fastify": "^4.28.1",
+    "socket.io": "^4.8.1",
+    "winston": "^3.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}
