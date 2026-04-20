@@ -31,7 +31,7 @@ Examples:
 - echo "export const X = 1;" >> file.ts
 `;
 
-    const commandToRun = await chat([{ role: 'user', content: prompt }], 'groq/llama-3.3-70b-versatile').catch(() => '');
+    const commandToRun = await chat([{ role: 'user', content: prompt }], 'groq/llama-3.1-8b-instant').catch(() => '');
 
 if (commandToRun && !commandToRun.includes('```') && !commandToRun.includes('sed')) {
       logger.info(`Executing generated mitigation command: ${commandToRun}`);   
