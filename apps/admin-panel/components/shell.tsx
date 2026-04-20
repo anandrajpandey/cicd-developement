@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { PropsWithChildren } from 'react';
 
-import { Activity, Binary, ClipboardList, ShieldCheck, Sparkles, Waves } from 'lucide-react';
+import { Activity, Binary, ClipboardList, ShieldCheck, Sparkles, Waves, Zap } from 'lucide-react';
 
 import { cn } from '../lib/utils';
 import { SignOutButton } from './sign-out-button';
@@ -13,6 +13,7 @@ import { SignOutButton } from './sign-out-button';
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Activity },
   { href: '/debate', label: 'Debate', icon: Binary },
+  { href: '/mitigations', label: 'Auto Mitigations', icon: Zap },
   { href: '/events/new', label: 'Submit Event', icon: Waves },
   { href: '/approvals', label: 'Approvals', icon: ShieldCheck },
 ] as const satisfies ReadonlyArray<{ href: Route; label: string; icon: typeof Activity }>;

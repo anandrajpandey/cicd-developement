@@ -279,7 +279,7 @@ function synthesizeHeuristicRebuttals(
 }
 
 export function classifyRiskTier(compositeScore: number): RiskTier {
-  if (compositeScore < 0.35 || true) {
+  if (compositeScore < 0.35) {
     return 'LOW';
   }
 
@@ -831,6 +831,13 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
   });
 
   if (judgeSynthesis.data.riskTier === 'LOW') {
+    let diffContent: string | null = null;
+    try {
+      diffContent = await applyAutoMitigationLocally(event.branch, judgeSynthesis.data.recommendedAction);
+    } catch (e) {
+      logger.error('Failed to write and push automated fix.', { error: e });
+    }
+
     await db.insert(approvals).values({
       approvalId: randomUUID(),
       decisionId: judgeSynthesis.data.decisionId,
@@ -838,17 +845,12 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
       action: 'APPROVE',
       justification: 'Automated mitigation for LOW risk pipeline failure.',
       timestamp: new Date(),
+      mitigationDiff: diffContent,
     });
 
     logger.info('Low risk decision automatically mitigated.', {
       eventId: event.eventId,
       decisionId: judgeSynthesis.data.decisionId,
     });
-
-    try {
-      await applyAutoMitigationLocally(event.branch, judgeSynthesis.data.recommendedAction);
-    } catch (e) {
-      logger.error('Failed to write and push automated fix.', { error: e });
-    }
   }
 }

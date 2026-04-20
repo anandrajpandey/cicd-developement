@@ -168,6 +168,7 @@ export const approvals = pgTable(
     justification: text('justification').notNull(),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    mitigationDiff: text('mitigation_diff'),
   },
   (table) => ({
     decisionIdx: index('approvals_decision_idx').on(table.decisionId),

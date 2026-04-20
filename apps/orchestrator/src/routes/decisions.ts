@@ -108,6 +108,34 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       }));
   });
 
+  fastify.get('/api/mitigations', async () => {
+    // Only fetch approvals that were automatically created by the Auto-Mitigator
+    const rows = await db.query.approvals.findMany({
+      where: (fields, operators) => operators.eq(fields.approver, 'Auto-Mitigator'),
+      with: {
+        decision: {
+          with: {
+            event: true,
+          }
+        }
+      },
+      orderBy: (fields, operators) => [operators.desc(fields.createdAt)],
+    });
+
+    return rows.map((row) => ({
+      approvalId: row.approvalId,
+      eventId: row.decision?.eventId,
+      repository: row.decision?.event?.repository,
+      branch: row.decision?.event?.branch,
+      failureType: row.decision?.event?.failureType,
+      errorLog: row.decision?.event?.errorLog,
+      justification: row.justification,
+      mitigationDiff: row.mitigationDiff,
+      recommendedAction: row.decision?.recommendedAction,
+      createdAt: row.createdAt,
+    }));
+  });
+
   fastify.post('/api/approvals', async (request, reply) => {
     const payload = approvalRequestSchema.parse(request.body);
 

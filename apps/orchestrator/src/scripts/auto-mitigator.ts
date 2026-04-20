@@ -46,13 +46,17 @@ Examples:
     }
     
     execSync('git add .', { cwd: workspaceRoot, stdio: 'inherit' });
+    
+    // Capture the diff
+    const diff = execSync('git diff --staged', { cwd: workspaceRoot, encoding: 'utf-8' });
+
     execSync('git commit -m "chore: auto-mitigation applied by Agentic CICD"', { cwd: workspaceRoot, stdio: 'inherit' });
     execSync('git push', { cwd: workspaceRoot, stdio: 'inherit' });
     
     logger.info('Auto-mitigator successfully pushed the patched commit.');
-    return true;
+    return diff;
   } catch (err) {
     logger.error(`Failed to apply auto mitigation locally. ${err}`);
-    return false;
+    return null;
   }
 }

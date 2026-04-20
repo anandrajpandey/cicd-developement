@@ -5,6 +5,7 @@ import {
   fetchGitHubDiff,
   getDecision,
   listApprovalQueue,
+  listAutoMitigations,
   listDecisions,
   submitApproval,
   submitEvent,
@@ -76,6 +77,9 @@ export const appRouter = t.router({
   }),
   approvals: t.procedure.query(async () => {
     return listApprovalQueue();
+  }),
+  autoMitigations: t.procedure.query(async () => {
+    return listAutoMitigations();
   }),
   recentDecisions: t.procedure.query(async () => {
     return listDecisions();

@@ -137,6 +137,27 @@ export async function listApprovalQueue(): Promise<DecisionListItem[]> {
   }
 }
 
+export interface AutoMitigationItem {
+  approvalId: string;
+  eventId: string;
+  repository: string;
+  branch: string;
+  failureType: string;
+  errorLog: string;
+  justification: string;
+  mitigationDiff: string | null;
+  recommendedAction: string;
+  createdAt: string;
+}
+
+export async function listAutoMitigations(): Promise<AutoMitigationItem[]> {
+  try {
+    return await requestJson<AutoMitigationItem[]>('/api/mitigations');
+  } catch {
+    return [];
+  }
+}
+
 export async function submitEvent(payload: EventSubmissionInput) {
   return requestJson<{ eventId: string; status: string }>('/api/events', {
     method: 'POST',

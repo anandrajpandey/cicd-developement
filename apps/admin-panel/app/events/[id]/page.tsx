@@ -17,7 +17,6 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   }
 
   const riskTier = data.decision.riskTier;
-  const needsApproval = riskTier === 'MEDIUM' || riskTier === 'HIGH';
   const adkCoverage = getAdkCoverage(data.decision.executionMeta);
 
   return (
@@ -46,18 +45,18 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
           <ExecutionStatusCard meta={data.decision.executionMeta} />
           <div className="rounded-3xl border border-line bg-[rgba(7,15,26,0.65)] p-4">
             <p className="text-[11px] uppercase tracking-[0.24em] text-mist/55">Failure Log</p>
-            <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-6 text-mist/72">
+            <pre className="mt-3 max-h-40 scroll-panel overflow-auto whitespace-pre-wrap text-xs leading-6 text-mist/72">
               {data.event?.errorLog}
             </pre>
           </div>
         </div>
       </section>
 
-      <div className="overflow-hidden border border-white/5 bg-[rgba(5,11,20,0.62)]">
+      <div className="overflow-hidden border border-white/5 bg-[rgba(14,25,41,0.8)] rounded-[30px]">
         <DebateViewer key={data.event?.eventId ?? id} eventId={data.event?.eventId ?? id} initialData={data} />
       </div>
 
-      {needsApproval ? <ApprovalPanel decisionId={data.decision.decisionId} /> : null}
+      <ApprovalPanel decisionId={data.decision.decisionId} isAutoMitigated={riskTier === 'LOW'} />
     </div>
   );
 }
