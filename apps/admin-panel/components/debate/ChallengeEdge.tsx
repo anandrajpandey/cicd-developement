@@ -16,6 +16,7 @@ export function ChallengeEdge({
   targetY,
   sourcePosition,
   targetPosition,
+  markerEnd,
   data,
 }: EdgeProps) {
   const edgeData = (data ?? {}) as ChallengeEdgeData;
@@ -42,6 +43,7 @@ export function ChallengeEdge({
         stroke={strokeColor}
         strokeWidth={2.5}
         strokeDasharray="8 8"
+        markerEnd={markerEnd}
         initial={{ pathLength: 0, opacity: 0.2 }}
         animate={{ pathLength: 1, opacity: 1 }}
         transition={{ duration: 0.55, ease: 'easeOut' }}

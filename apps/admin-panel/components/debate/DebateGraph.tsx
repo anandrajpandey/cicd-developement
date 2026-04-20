@@ -67,8 +67,14 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals }: Pr
         type: 'challengeEdge',
         selectable: false,
         animated: true,
+        markerEnd: {
+          type: 'arrowclosed',
+          color: rebuttals[challenge.targetAgentId]?.position === 'DEFEND' ? '#3b82f6' : (rebuttals[challenge.targetAgentId] ? '#ef4444' : '#f59e0b'),
+          width: 20,
+          height: 20,
+        },
         data: {
-          label: 'Challenge',
+          label: rebuttals[challenge.targetAgentId] ? `Round 1 Challenge / Round 2 ${rebuttals[challenge.targetAgentId]!.position}` : 'Round 1 Challenge',
           resolved: Boolean(rebuttals[challenge.targetAgentId]),
           position: rebuttals[challenge.targetAgentId]?.position,
         },
