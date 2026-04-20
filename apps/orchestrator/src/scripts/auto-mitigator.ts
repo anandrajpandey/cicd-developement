@@ -43,7 +43,7 @@ if (commandToRun && !commandToRun.includes('```') && !commandToRun.includes('sed
        if (depMatch && depMatch[1]) {
          execSync(`pnpm install ${depMatch[1]}`, { cwd: workspaceRoot, stdio: 'inherit' });
        }
-       if (recommendedAction.toLowerCase().includes('whitespace') || recommendedAction.toLowerCase().includes('space')) {
+      if (recommendedAction.toLowerCase().includes('whitespace') || recommendedAction.toLowerCase().includes('spac')) {
          logger.info('Whitespace fix fallback triggered.');
          execSync(`node -e "const fs = require('fs'); fs.writeFileSync('packages/shared-types/src/dummy.ts', fs.readFileSync('packages/shared-types/src/dummy.ts', 'utf8').trim() + '\\n')"`, { cwd: workspaceRoot });
        }
