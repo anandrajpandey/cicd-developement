@@ -53,7 +53,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
       </section>
 
       <div className="overflow-hidden border border-white/5 bg-[rgba(14,25,41,0.8)] rounded-[30px]">
-        <DebateViewer key={data.event?.eventId ?? id} eventId={data.event?.eventId ?? id} />
+        <DebateViewer key={data.event?.eventId ?? id} eventId={data.event?.eventId ?? id} initialData={data} />
       </div>
 
       <ApprovalPanel decisionId={data.decision.decisionId} isAutoMitigated={riskTier === 'LOW'} />
