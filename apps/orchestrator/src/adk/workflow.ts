@@ -33,7 +33,7 @@ import { judgePrompt } from '../prompts/judge.js';
 import { testAnalyzerPrompt } from '../prompts/test-analyzer.js';
 import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.js';
 
-const PRIMARY_MODEL = 'groq/llama-3.3-70b-versatile';
+const PRIMARY_MODEL = 'groq/llama3-70b-8192';
 const FALLBACK_MODEL = 'ollama/mistral:7b';
 const ADK_EXECUTION_TIMEOUT_MS = 10_000;
 const findingPayloadSchema = agentFindingSchema.pick({
