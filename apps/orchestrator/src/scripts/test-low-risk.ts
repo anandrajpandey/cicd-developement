@@ -4,6 +4,7 @@ import { runDebate } from '../debate/run-debate.js';
 import { loadEnv } from '../env.js';
 
 loadEnv();
+process.env.ADK_BASE_URL = 'http://127.0.0.1:59999';
 
 async function main() {
   const event = {
