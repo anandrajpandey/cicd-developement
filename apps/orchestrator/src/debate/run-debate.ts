@@ -819,10 +819,6 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
     executionMeta,
   );
 
-  // FORCE LOW RISK FOR TESTING
-  judgeSynthesis.data.riskTier = 'LOW';
-  judgeSynthesis.data.recommendedAction = 'sed -i "s/ *$//" packages/shared-types/src/dummy.ts';
-
   logger.info('Debate pipeline complete.', {
     eventId: event.eventId,
     repository: event.repository,
