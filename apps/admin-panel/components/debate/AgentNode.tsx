@@ -12,23 +12,23 @@ export type AgentNodeData = {
 }
 
 const STATUS_RING: Record<AgentStatus, string> = {
-  idle:          'border-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05)]',
-  analyzing:     'border-[#3b82f6]/50 shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]',
-  finding_ready: 'border-[#10b981]/50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)]',
-  challenging:   'border-[#f59e0b]/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.3)]',
-  defending:     'border-[#6366f1]/50 shadow-[0_0_15px_-3px_rgba(99,102,241,0.3)]',
-  conceding:     'border-[#ef4444]/50 shadow-[0_0_15px_-3px_rgba(239,68,68,0.3)]',
-  judging:       'border-[#a855f7]/50 shadow-[0_0_20px_-3px_rgba(168,85,247,0.4)]',
+  idle:          'border-white/5 shadow-none',
+  analyzing:     'border-[#3b82f6]/30 shadow-none',
+  finding_ready: 'border-[#10b981]/30 shadow-none',
+  challenging:   'border-[#f59e0b]/30 shadow-none',
+  defending:     'border-[#6366f1]/30 shadow-none',
+  conceding:     'border-[#ef4444]/30 shadow-none',
+  judging:       'border-[#a855f7]/30 shadow-none',
 }
 
 const STATUS_BG: Record<AgentStatus, string> = {
-  idle:          'bg-[#0f1115]',
-  analyzing:     'bg-[#0f172a]',
-  finding_ready: 'bg-[#0f1f18]',
-  challenging:   'bg-[#1f160e]',
-  defending:     'bg-[#121029]',
-  conceding:     'bg-[#211111]',
-  judging:       'bg-[#1b1126]',
+  idle:          'bg-[#0f1115]/50',
+  analyzing:     'bg-[#0f172a]/50',
+  finding_ready: 'bg-[#0f1f18]/50',
+  challenging:   'bg-[#1f160e]/50',
+  defending:     'bg-[#121029]/50',
+  conceding:     'bg-[#211111]/50',
+  judging:       'bg-[#1b1126]/50',
 }
 
 const STATUS_TEXT: Record<AgentStatus, string> = {
@@ -47,20 +47,21 @@ const ICONS: Record<AgentId, string> = {
   test_analyzer: '🧪',
   dependency_checker: '📦',
   judge: '⚖️',
+  root_event: '⚠️',
 }
 
 export function AgentNode({ data }: NodeProps) {
   const { agentId, label, status, confidence, rebuttalPosition } = data as AgentNodeData
   const Icon = ICONS[agentId]
   const pulse = status === 'analyzing' || status === 'judging' || status === 'challenging'
-  
+
   return (
-    <div className={`relative px-4 py-3 rounded-2xl border-2 transition-all duration-500 backdrop-blur-md min-w-[200px] ${STATUS_RING[status]} ${STATUS_BG[status]} group hover:shadow-[0_0_25px_-5px_rgba(255,255,255,0.1)] hover:border-white/20`}>
+    <div className={`relative px-4 py-3 rounded-lg border transition-all duration-500 backdrop-blur-md min-w-[200px] ${STATUS_RING[status]} ${STATUS_BG[status]} group hover:border-white/20`}>
       <Handle type="target" position={Position.Left} className="w-1 h-3 rounded-full bg-white/20 border-none -ml-1 transition-opacity opacity-0 group-hover:opacity-100" />
       <Handle type="source" position={Position.Right} className="w-1 h-3 rounded-full bg-white/20 border-none -mr-1 transition-opacity opacity-0 group-hover:opacity-100" />
 
       <div className="flex items-center gap-3">
-        <div className={`flex items-center justify-center w-8 h-8 rounded-full bg-black/40 border border-white/5 text-sm ${pulse ? 'animate-pulse' : ''} shadow-inner`}>
+        <div className={`flex items-center justify-center w-8 h-8 rounded-md bg-white/5 border border-white/5 text-sm ${pulse ? 'animate-pulse' : ''} shadow-inner`}>
             {Icon}
         </div>
         <div className="flex flex-col flex-1">

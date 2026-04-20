@@ -6,6 +6,8 @@ import {
   ReactFlow,
   useEdgesState,
   useNodesState,
+  useReactFlow,
+  ReactFlowProvider,
   type Edge,
   type Node,
   Position,
@@ -23,11 +25,59 @@ const PRO_OPTIONS = { hideAttribution: true };
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
 
 const AGENT_CONFIG: { id: AgentId; label: string; x: number; y: number }[] = [  
-  { id: 'build_analyzer', label: 'Build Analyzer', x: 100, y: 350 },
-  { id: 'code_reviewer', label: 'Code Reviewer', x: 450, y: 150 },
-  { id: 'test_analyzer', label: 'Test Analyzer', x: 450, y: 550 },
-  { id: 'dependency_checker', label: 'Dependency Checker', x: 800, y: 350 },
-  { id: 'judge', label: 'Judge', x: 1200, y: 350 },
+  { id: 'build_analyzer', label: 'Build Analyzer', x: 350, y: 150 },
+  { id: 'code_reviewer', label: 'Code Reviewer', x: 350, y: 300 },
+  { id: 'test_analyzer', label: 'Test Analyzer', x: 350, y: 450 },
+  { id: 'dependency_checker', label: 'Dependency Checker', x: 350, y: 600 },
+  { id: 'judge', label: 'Judge', x: 750, y: 375 },
+];
+
+const BASE_NODES: Node[] = [
+  {
+    id: 'root_event',
+    type: 'input',
+    position: { x: 50, y: 375 },
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+    data: { label: 'CI/CD Failure Event' },
+    style: {
+      background: '#0a0a0a',
+      color: '#fff',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: '8px',
+      padding: '12px 24px',
+      width: 180,
+      textAlign: 'center',
+      fontSize: '12px',
+      textTransform: 'uppercase',
+      letterSpacing: '1px',
+      fontWeight: 'bold',
+      boxShadow: '0 0 15px -3px rgba(0, 0, 0, 0.5)'
+    },
+  },
+];
+
+const BASE_EDGES: Edge[] = [
+  ...AGENT_CONFIG.filter((a) => a.id !== 'judge').map((a) => ({
+    id: `root-to-${a.id}`,
+    source: 'root_event',
+    target: a.id,
+    type: 'default',
+    animated: true,
+    style: { stroke: 'rgba(255,255,255,0.2)' },
+  })),
+  ...AGENT_CONFIG.filter((a) => a.id !== 'judge').map((a) => ({
+    id: `${a.id}-to-judge`,
+    source: a.id,
+    target: 'judge',
+    type: 'default',
+    animated: true,
+    style: { stroke: 'rgba(255,255,255,0.2)' },
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      color: 'rgba(255,255,255,0.2)',
+    },
+  })),
 ];
 
 interface Props {
@@ -38,10 +88,21 @@ interface Props {
   onHoverNode?: (id: AgentId | null) => void;
 }
 
-export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHoverNode }: Props) {
+export function DebateGraph(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <DebateGraphInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function DebateGraphInner({ statuses, confidences, challenges, rebuttals, onHoverNode }: Props) {
+  const reactFlowInstance = useReactFlow();
+
   const derivedNodes: Node[] = useMemo(
-    () =>
-      AGENT_CONFIG.map((a) => ({
+    () => [
+      ...BASE_NODES,
+      ...AGENT_CONFIG.map((a) => ({
         id: a.id,
         type: 'agentNode',
         draggable: true,
@@ -56,13 +117,15 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHo
           confidence: confidences[a.id],
           rebuttalPosition: rebuttals[a.id]?.position,
         } satisfies AgentNodeData,
-      })),
+      }))
+    ],
     [statuses, confidences, rebuttals],
   );
 
   const derivedEdges: Edge[] = useMemo(
-    () =>
-      challenges.map((challenge) => {
+    () => [
+      ...BASE_EDGES,
+      ...challenges.map((challenge) => {
         const rebuttal = rebuttals[challenge.targetAgentId];
         const isResolved = Boolean(rebuttal);
         const position = rebuttal?.position;
@@ -70,6 +133,11 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHo
             ? (position === 'DEFEND' ? '#3b82f6' : '#ef4444') 
             : '#f59e0b';
             
+        let label = `Contradicts ${challenge.targetAgentId.split('_').join(' ')}`;
+        if (isResolved) {
+            label = `${position === 'DEFEND' ? 'Defended' : position === 'CONCEDE' ? 'Conceded' : 'Compromised'} against ${challenge.challengerAgentId.split('_').join(' ')}`;
+        }
+
         return {
             id: challenge.challengeId,
             source: challenge.challengerAgentId,
@@ -82,12 +150,13 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHo
                 color: color,
             },
             data: {
-                label: isResolved ? `Round 1 Challenge / Round 2 ${position}` : 'Round 1 Challenge',      
+                label,      
                 resolved: isResolved,
                 position: position,
             },
         };
       }),
+    ],
     [challenges, rebuttals],
   );
 
@@ -121,6 +190,19 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHo
     onHoverNode?.(null);
   }, [onHoverNode]);
 
+  const onNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      const zoom = node.id === 'root_event' ? 1.5 : 1.2;
+      reactFlowInstance.setCenter(node.position.x + (node.id === 'root_event' ? 90 : 120), node.position.y + 40, {
+        zoom,
+        duration: 800,
+      });
+      // We can also trigger the overlay by setting hover node on click so it stays
+      onHoverNode?.(node.id as AgentId);
+    },
+    [reactFlowInstance, onHoverNode]
+  );
+
   return (
     <div className="h-full w-full bg-[#0A0A0A]">  
       <ReactFlow
@@ -129,8 +211,11 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHo
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeMouseEnter={onNodeMouseEnter}
-        onPaneClick={onPaneMouseEnter}
-        onPaneMouseEnter={onPaneMouseEnter}
+        onNodeClick={onNodeClick}
+        onPaneClick={() => {
+          onPaneMouseEnter();
+          reactFlowInstance.fitView({ duration: 800, padding: 0.2 });
+        }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultViewport={DEFAULT_VIEWPORT}

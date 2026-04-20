@@ -15,6 +15,7 @@ const navItems = [
   { href: '/debate', label: 'Debate', icon: Binary },
   { href: '/mitigations', label: 'Auto Mitigations', icon: Zap },
   { href: '/events/new', label: 'Submit Event', icon: Waves },
+  { href: '/testcases', label: 'Risk Injection', icon: Sparkles },
   { href: '/approvals', label: 'Approvals', icon: ShieldCheck },
 ] as const satisfies ReadonlyArray<{ href: Route; label: string; icon: typeof Activity }>;
 

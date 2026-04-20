@@ -7,6 +7,7 @@ import { io } from 'socket.io-client';
 
 import type { DecisionDetail } from '../../lib/orchestrator';
 import { DebateGraph } from './DebateGraph';
+import { DebateChatFeed } from './DebateChatFeed';
 import type {
   AgentFinding,
   AgentId,
@@ -357,22 +358,32 @@ export function DebateViewer({
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0A0A0A] overflow-hidden flex flex-col font-sans">
-      <div className="flex-none p-4 flex items-center justify-between border-b border-white/5 bg-[#0F1218]">
+      <div className="flex-none p-4 flex items-center justify-between bg-[#0F1218]">
         <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-white tracking-widest uppercase">X-Ray Trace</h1>
             <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
         </div>
         <div className="flex bg-white/5 rounded-lg p-1 gap-1">
-            <button onClick={() => setSelectedRound('live')} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Live</button>
-            <button onClick={() => setSelectedRound(0)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 0 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R0 Analysis</button>
-            <button onClick={() => setSelectedRound(1)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 1 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R1 Challenge</button>
-            <button onClick={() => setSelectedRound(2)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 2 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R2 Defense</button>
-            <button onClick={() => setSelectedRound(3)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R3 Decision</button>
-            <a href="/" className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20">Close</a>
+            <button onClick={() => setSelectedRound('live')} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Live View</button>
+            <button onClick={() => setSelectedRound(3)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Final Decision</button>
+            <a href="/" className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20">Exit</a>
         </div>
       </div>
 
-      <div className="flex-1 relative flex">
+      <div className="flex-1 relative flex h-[calc(100vh-64px)] overflow-hidden">
+        <div className="hidden lg:flex w-[480px] border-r border-white/5 bg-[#08080A] flex-col z-20 shadow-[10px_0_30px_rgba(0,0,0,0.5)]">
+          <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/40 shadow-sm z-10">
+            <div className="flex gap-2 items-center">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[11px] uppercase font-bold tracking-widest text-mist/90">Agent Feed</span>
+            </div>
+            <span className="text-[9px] font-mono text-mist/50">Round {currentRound}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-white/5">
+            <DebateChatFeed findings={displayedFindings} challenges={displayedChallenges} rebuttals={displayedRebuttals} decision={displayedDecision} />
+          </div>
+        </div>
+
         <div className="flex-1 relative h-full w-full">
             <DebateGraph
             statuses={statuses}
@@ -390,13 +401,24 @@ export function DebateViewer({
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-              className="absolute right-0 top-0 bottom-0 w-[400px] bg-[#0F1218]/95 backdrop-blur-3xl border-l border-white/5 p-6 shadow-2xl z-10 overflow-y-auto"
+              className="absolute right-0 top-0 bottom-0 w-[400px] bg-[#0F1218]/95 backdrop-blur-3xl p-6 shadow-2xl z-10 overflow-y-auto"
             >
-              <h2 className="text-xl font-mono text-white tracking-widest uppercase mb-6 pb-2 border-b border-white/10">
+              <h2 className="text-xl font-mono text-white tracking-widest uppercase mb-6 pb-2 border-b border-white/5">
                 {hoveredNode.replace('_', ' ')}
               </h2>
 
-              {hoveredNode === 'judge' ? (
+              {hoveredNode === 'root_event' ? (
+                <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-white/5">
+                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Repository / Branch</p>
+                        <p className="text-sm font-mono text-white/90">{initialData?.event?.repository} / {initialData?.event?.branch}</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-red-900/10 border border-red-500/20">
+                        <p className="text-xs uppercase text-red-400 font-semibold mb-2">Error Log</p>
+                        <pre className="text-[10px] sm:text-xs text-red-300 font-mono whitespace-pre-wrap break-words">{initialData?.event?.errorLog ?? 'No logs captured.'}</pre>
+                    </div>
+                </div>
+              ) : hoveredNode === 'judge' ? (
                 displayedDecision ? (
                   <div className="space-y-4">
                     <div className="p-4 rounded-xl bg-white/5">
@@ -426,17 +448,25 @@ export function DebateViewer({
                   {displayedFindings.find((f) => f.agentId === hoveredNode) && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                         <div className="px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-full text-xs font-semibold tracking-wider">Analysis Finding</div>
-                         <div className="text-xs font-mono text-mist/60">Ready</div>
+                         <div className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold tracking-wider">Analysis Finding</div>
+                         <div className="text-xl font-mono text-white/90">{Math.round((displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0) * 100)}% <span className="text-xs text-mist/50">Conf.</span></div>
                       </div>
-                      <div className="bg-white/5 p-4 rounded-xl space-y-3">
+                      <div className="bg-white/5 p-4 rounded-xl space-y-4">
                         <div>
-                            <p className="text-[10px] uppercase text-mist/50 font-semibold tracking-widest mb-1">Hypothesis</p>
-                            <p className="text-sm text-white/80 leading-relaxed">{displayedFindings.find((f) => f.agentId === hoveredNode)?.hypothesis}</p>
+                            <p className="text-[10px] uppercase text-[#3B82F6] font-bold tracking-widest mb-1">Hypothesis</p>
+                            <p className="text-sm text-white/90 leading-relaxed mt-1">{displayedFindings.find((f) => f.agentId === hoveredNode)?.hypothesis}</p>
                         </div>
                         <div>
-                            <p className="text-[10px] uppercase text-mist/50 font-semibold tracking-widest mb-1">Evidence</p>
-                            <p className="text-xs text-mist/70 font-mono bg-black/40 p-2 rounded-lg break-all">{displayedFindings.find((f) => f.agentId === hoveredNode)?.evidence}</p>
+                            <p className="text-[10px] uppercase text-[#10B981] font-bold tracking-widest mb-1 border-b border-[#10B981]/20 pb-1 inline-block">Evidence</p>
+                            <ul className="mt-1 space-y-2">
+                              {displayedFindings.find((f) => f.agentId === hoveredNode)?.evidence.map((ev, i) => (
+                                <li key={i} className="text-xs text-mist/70 font-mono bg-black/20 p-2 rounded-lg break-words">— {ev}</li>
+                              ))}
+                            </ul>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-mist/50 font-bold tracking-widest mb-1 border-b border-white/10 pb-1 inline-block">Proposed Mitigation</p>
+                            <pre className="mt-1 text-xs text-mist/80 font-mono bg-black/20 p-3 rounded-lg break-words whitespace-pre-wrap">{displayedFindings.find((f) => f.agentId === hoveredNode)?.proposedRemediation}</pre>
                         </div>
                       </div>
                     </div>
@@ -444,23 +474,29 @@ export function DebateViewer({
 
                   {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).length > 0 && (
                     <div className="space-y-3">
-                      <div className="px-3 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Appealed Challenges</div>
-                      {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).map((c) => (
-                          <div key={c.challengeId} className="bg-orange-500/5 p-4 rounded-xl space-y-2 border border-orange-500/10">
-                              <p className="text-xs text-orange-400/80 font-mono">From: {c.challengerAgentId}</p>
-                              <p className="text-sm text-white/80 leading-relaxed">{c.counterHypothesis}</p>
-                          </div>
-                      ))}
+                      <div className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Challenged By</div>
+                      <div className="space-y-3">
+                        {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).map((c) => (
+                            <div key={c.challengeId} className="bg-orange-500/5 p-4 rounded-xl space-y-3">
+                                <div className="flex items-center gap-2">       
+                                  <p className="text-xs text-orange-400 font-bold uppercase tracking-widest">{c.challengerAgentId.replace('_', ' ')}</p>        
+                                </div>
+                                <p className="text-sm text-mist/90 leading-relaxed">{c.counterHypothesis}</p>
+                            </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  {displayedRebuttals[hoveredNode] && (
+                  {displayedRebuttals[hoveredNode as AgentId] && (
                     <div className="space-y-3">
-                      <div className={`px-3 py-1 ${displayedRebuttals[hoveredNode]?.position === 'DEFEND' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'} border rounded-full text-xs font-semibold tracking-wider self-start inline-block`}>
-                          {displayedRebuttals[hoveredNode]?.position} Response
-                      </div>
-                      <div className="bg-white/5 p-4 rounded-xl">
-                          <p className="text-sm text-white/80 leading-relaxed">{displayedRebuttals[hoveredNode]?.rebuttalFactor}</p>
+                      <div className="px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Resolution Motion</div>
+                      <div className={`p-4 rounded-xl space-y-3 ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'bg-blue-500/5' : 'bg-red-500/5'}`}>
+                         <p className={`text-[10px] uppercase font-bold tracking-widest ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'text-blue-400' : 'text-red-400'}`}>Agent chose to {displayedRebuttals[hoveredNode as AgentId]!.position}</p>
+                         <div className="flex justify-between items-center text-sm font-mono p-2 bg-black/20 rounded-lg">
+                           <span className="text-mist/60">Updated Confidence</span>
+                           <span className="text-white/90">{Math.round(displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence * 100)}%</span>
+                         </div>
                       </div>
                     </div>
                   )}

@@ -4,6 +4,7 @@ export type AgentId =
   | 'test_analyzer'
   | 'dependency_checker'
   | 'judge'
+  | 'root_event'
 
 export type AgentStatus =
   | 'idle'
