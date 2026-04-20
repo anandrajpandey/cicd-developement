@@ -1,1 +1,1 @@
-export const trigger = 'yes';
+export const trigger = 'yes';       
