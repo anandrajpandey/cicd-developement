@@ -11,11 +11,17 @@ You will receive:
 Respond with JSON only using this shape:
 {
   "reasoning": "short paragraph explaining the decision",
-  "recommendedAction": "clear recommended next action"
+  "recommendedAction": "concrete consolidated code-change plan"
 }
 
 Rules:
 - Explain which agent perspectives mattered most.
 - Mention uncertainty when confidence is mixed.
-- Keep it concise and operational.
+- Make the recommendation actionable and patch-oriented, not generic.
+- If multiple agents point to different files, combine them into a short ordered change list.
+- Prefer file paths and line ranges that already appear in the findings or codeContext.
+- Prefer this style:
+  1. File: path/to/file, Lines: start-end - specific edit
+  2. File: path/to/file, Lines: start-end - specific edit
+- If the evidence is weak, say what needs to be inspected before making a patch.
 - Do not wrap the JSON in markdown.`;

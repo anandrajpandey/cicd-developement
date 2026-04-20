@@ -24,6 +24,7 @@ import {
 } from '@agentic-cicd/shared-types';
 
 import { loadEnv } from '../env.js';
+import { loadCodeContext, type CodeContextEntry } from '../agents/utils.js';
 
 import { buildAnalyzerPrompt } from '../prompts/build-analyzer.js';
 import { codeReviewerPrompt } from '../prompts/code-reviewer.js';
@@ -144,12 +145,18 @@ Respond with JSON only in this shape:
   "hypothesis": "one-sentence root cause",
   "evidence": ["specific point", "specific point"],
   "confidence": 0.0,
-  "proposedRemediation": "clear remediation step"
+  "proposedRemediation": "concrete file-level code or config change"
 }
 
 Rules:
 - Confidence must be between 0 and 1.
 - Evidence must contain at least one concrete point from the event.
+- If codeContext is present, use it directly and cite the actual file path.
+- Prefer a patch-like remediation over a summary.
+- When possible, write proposedRemediation in this style:
+  File: path/to/file
+  Change:
+  <exact code, config, import, or test edit>
 - Do not include markdown fences or extra commentary.`;
 }
 
@@ -159,13 +166,83 @@ function withJudgeOutputRules(instruction: string): string {
 Respond with JSON only in this shape:
 {
   "reasoning": "natural-language reasoning summary",
-  "recommendedAction": "clear recommended action"
+  "recommendedAction": "grounded code-change plan"
 }
 
 Rules:
 - Reasoning should synthesize the strongest findings and rebuttal-adjusted confidence.
-- recommendedAction should be concise and actionable.
+- recommendedAction should be concise, actionable, and grounded in files already present in the event, codeContext, or findings.
+- Never invent file paths, languages, modules, or frameworks that do not appear in the input.
+- Prefer a numbered list of concrete edits when the findings support it.
 - Do not include markdown fences or extra commentary.`;
+}
+
+function collectReferencedFiles(input: string): string[] {
+  const matches = input.match(
+    /(?:\.\/|\/workspace\/)?[A-Za-z0-9_./\\\-[\]]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|yml|yaml)/g,
+  );
+
+  if (!matches) {
+    return [];
+  }
+
+  return [...new Set(matches.map((value) => value.replace(/^\/workspace\//, '').replace(/^\.\//, '')))];
+}
+
+function sanitizeFileForDisplay(path: string): string {
+  return path.endsWith('.tsx]') ? path.replace(/\.tsx\]$/, '.tsx') : path;
+}
+
+function buildRecommendedActionFromFindings(findings: AgentFinding[]): string {
+  const concrete = findings
+    .map((finding) => finding.proposedRemediation.trim())
+    .filter((value) => value.length > 0)
+    .slice(0, 3);
+
+  if (concrete.length === 0) {
+    return 'Inspect the referenced failure files before making a patch.';
+  }
+
+  return concrete.map((value, index) => `${index + 1}. ${value}`).join('\n');
+}
+
+function groundJudgeRecommendedAction(
+  event: PipelineEvent,
+  findings: AgentFinding[],
+  recommendedAction: string,
+): string {
+  const allowedFiles = new Set<string>([
+    ...collectReferencedFiles(event.errorLog),
+    ...findings.flatMap((finding) => collectReferencedFiles(finding.proposedRemediation)),
+  ]);
+  const referencedInJudge = collectReferencedFiles(recommendedAction);
+
+  if (referencedInJudge.length === 0) {
+    return buildRecommendedActionFromFindings(findings);
+  }
+
+  const hasUnknownReference = referencedInJudge.some((file) => !allowedFiles.has(file));
+  if (hasUnknownReference) {
+    return buildRecommendedActionFromFindings(findings);
+  }
+
+  return recommendedAction;
+}
+
+function buildGroundedJudgeInput(
+  input: {
+    event: PipelineEvent;
+    findings: AgentFinding[];
+    rebuttals: unknown;
+    compositeScore: number;
+    riskTier: string;
+  },
+  codeContext: CodeContextEntry[],
+) {
+  return {
+    ...input,
+    codeContext,
+  };
 }
 
 function withChallengeOutputRules(instruction: string): string {
@@ -440,6 +517,8 @@ export function normalizeAdkRoundZeroFindings(
     return findings;
   }
 
+  const primaryReferencedFile = collectReferencedFiles(event.errorLog)[0];
+
   return findings.map((finding) => {
     if (finding.agentId === 'build_analyzer') {
       const hypothesisLooksWeak =
@@ -461,7 +540,9 @@ export function normalizeAdkRoundZeroFindings(
         ],
         confidence: 0.85,
         proposedRemediation:
-          'Install or restore the missing package and verify the import path used in the failing file.',
+          primaryReferencedFile
+            ? `File: ${sanitizeFileForDisplay(primaryReferencedFile)}\nChange:\nReplace the unresolved import with the correct workspace path or restore the missing package export used by this file.`
+            : 'File: package.json\nChange:\nRestore the missing package dependency or workspace export referenced by the failing import.',
       };
     }
 
@@ -485,7 +566,7 @@ export function normalizeAdkRoundZeroFindings(
         ],
         confidence: 0.45,
         proposedRemediation:
-          'Verify the dependency is present in the workspace/package manifest and reinstall dependencies if needed.',
+          'File: package.json\nChange:\nAdd or restore the missing workspace dependency and resync the lockfile so the referenced package can resolve during bundling.',
       };
     }
 
@@ -581,13 +662,14 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
   const events: unknown[] = [];
 
   try {
+    const codeContext = await loadCodeContext(event);
     const execution = (async () => {
       for await (const runnerEvent of roundZeroWorkflowRunner.runEphemeral({
         userId: `event:${event.eventId}`,
         newMessage: {
           parts: [
             {
-              text: JSON.stringify(event, null, 2),
+              text: JSON.stringify({ ...event, codeContext }, null, 2),
             },
           ],
         },
@@ -647,7 +729,7 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
 
 export async function executeAdkJudge(input: {
   event: PipelineEvent;
-  findings: unknown;
+  findings: AgentFinding[];
   rebuttals: unknown;
   compositeScore: number;
   riskTier: string;
@@ -655,13 +737,14 @@ export async function executeAdkJudge(input: {
   const events: unknown[] = [];
 
   try {
+    const codeContext = await loadCodeContext(input.event);
     const execution = (async () => {
       for await (const runnerEvent of judgeWorkflowRunner.runEphemeral({
         userId: `event:${input.event.eventId}`,
         newMessage: {
           parts: [
             {
-              text: JSON.stringify(input, null, 2),
+              text: JSON.stringify(buildGroundedJudgeInput(input, codeContext), null, 2),
             },
           ],
         },
@@ -683,7 +766,11 @@ export async function executeAdkJudge(input: {
       return {
         status: 'completed' as const,
         reasoning: judgeDecision.reasoning,
-        recommendedAction: judgeDecision.recommendedAction,
+        recommendedAction: groundJudgeRecommendedAction(
+          input.event,
+          input.findings,
+          judgeDecision.recommendedAction,
+        ),
       };
     })();
 

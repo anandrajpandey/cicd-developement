@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import './globals.css';
+import '@xyflow/react/dist/style.css';
 
 import { AppFrame } from '../components/app-frame';
 

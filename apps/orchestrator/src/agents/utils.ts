@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { chat } from '@agentic-cicd/llm-client';
 import {
@@ -32,6 +34,29 @@ const rebuttalPayloadSchema = rebuttalSchema.pick({
   updatedConfidence: true,
 });
 
+export interface CodeContextEntry {
+  path: string;
+  snippet: string;
+  reason: string;
+  startLine: number;
+  endLine: number;
+}
+
+const CONTEXT_FILE_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs|json|yml|yaml|md)$/i;
+const WORKSPACE_IGNORE_DIRS = new Set([
+  '.git',
+  '.next',
+  'node_modules',
+  'dist',
+  'coverage',
+  '.turbo',
+  '.idea',
+  '.vscode',
+  'drizzle',
+]);
+const MAX_WORKSPACE_FILES = 600;
+const MAX_CONTEXT_ENTRIES = 8;
+
 function extractJsonObject(input: string): string {
   const startIndex = input.indexOf('{');
   const endIndex = input.lastIndexOf('}');
@@ -49,6 +74,281 @@ function clampConfidence(value: number): number {
   }
 
   return Math.max(0, Math.min(1, value));
+}
+
+function normalizeCandidatePath(candidate: string): string | null {
+  const trimmed = candidate.trim().replace(/^['"`]+|['"`]+$/g, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  let normalized = trimmed.replace(/\\/g, '/');
+
+  if (normalized.startsWith('/workspace/')) {
+    normalized = normalized.slice('/workspace/'.length);
+  }
+
+  if (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+
+  if (normalized.startsWith('/')) {
+    normalized = normalized.slice(1);
+  }
+
+  if (!/\.(ts|tsx|js|jsx|mjs|cjs|json)$/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function parseLineHints(errorLog: string): Map<string, number[]> {
+  const hints = new Map<string, number[]>();
+  const linePattern =
+    /((?:\.\/|\/workspace\/)?[A-Za-z0-9_./\\\-[\]]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|yml|yaml)):(\d+)(?::\d+)?/g;
+
+  for (const match of errorLog.matchAll(linePattern)) {
+    const normalized = normalizeCandidatePath(match[1]);
+    const line = Number(match[2]);
+
+    if (!normalized || !Number.isFinite(line) || line <= 0) {
+      continue;
+    }
+
+    const existing = hints.get(normalized) ?? [];
+    existing.push(line);
+    hints.set(normalized, existing);
+  }
+
+  return hints;
+}
+
+function collectCandidatePaths(errorLog: string): string[] {
+  const candidates = new Set<string>();
+  const pathPattern =
+    /(?:\.\/|\/workspace\/)[A-Za-z0-9_./\\\-[\]]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|yml|yaml)/g;
+
+  for (const match of errorLog.matchAll(pathPattern)) {
+    const normalized = normalizeCandidatePath(match[0]);
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  }
+
+  return [...candidates];
+}
+
+function collectImportSpecifiers(errorLog: string): string[] {
+  const specifiers = new Set<string>();
+  const importPattern = /['"`](@?[A-Za-z0-9_./-]+)['"`]/g;
+
+  for (const match of errorLog.matchAll(importPattern)) {
+    const value = match[1];
+    if (value.length >= 2 && /[./-]/.test(value)) {
+      specifiers.add(value);
+    }
+  }
+
+  return [...specifiers].slice(0, 8);
+}
+
+function collectSearchTokens(errorLog: string, candidatePaths: string[]): string[] {
+  const tokens = new Set<string>();
+
+  for (const candidate of candidatePaths) {
+    tokens.add(path.basename(candidate));
+    tokens.add(path.basename(candidate, path.extname(candidate)));
+  }
+
+  for (const specifier of collectImportSpecifiers(errorLog)) {
+    tokens.add(specifier);
+    const tail = specifier.split('/').pop();
+    if (tail) {
+      tokens.add(tail);
+    }
+  }
+
+  for (const token of errorLog.match(/[A-Za-z][A-Za-z0-9_-]{4,}/g) ?? []) {
+    if (
+      token.includes('-') ||
+      token.includes('_') ||
+      ['undefined', 'warning', 'module', 'import', 'change', 'review'].includes(
+        token.toLowerCase(),
+      )
+    ) {
+      tokens.add(token);
+    }
+  }
+
+  return [...tokens].slice(0, 16);
+}
+
+function formatSnippetWithLineNumbers(lines: string[], startLine: number): string {
+  return lines
+    .map((line, index) => `${String(startLine + index).padStart(4, ' ')} | ${line}`)
+    .join('\n');
+}
+
+async function collectWorkspaceFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  const queue: string[] = [root];
+
+  while (queue.length > 0 && files.length < MAX_WORKSPACE_FILES) {
+    const current = queue.shift();
+    if (!current) {
+      break;
+    }
+
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (files.length >= MAX_WORKSPACE_FILES) {
+        break;
+      }
+
+      const absolutePath = path.join(current, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!WORKSPACE_IGNORE_DIRS.has(entry.name)) {
+          queue.push(absolutePath);
+        }
+        continue;
+      }
+
+      if (entry.isFile() && CONTEXT_FILE_EXTENSIONS.test(entry.name)) {
+        files.push(absolutePath);
+      }
+    }
+  }
+
+  return files;
+}
+
+function buildSnippetAroundMatch(raw: string, lineNumber?: number): { snippet: string; startLine: number; endLine: number } {
+  const fileLines = raw.split(/\r?\n/);
+  const startLine = lineNumber ? Math.max(1, lineNumber - 8) : 1;
+  const endLine = lineNumber
+    ? Math.min(fileLines.length, lineNumber + 8)
+    : Math.min(fileLines.length, 80);
+
+  return {
+    snippet: formatSnippetWithLineNumbers(fileLines.slice(startLine - 1, endLine), startLine),
+    startLine,
+    endLine,
+  };
+}
+
+async function searchWorkspaceContext(
+  root: string,
+  errorLog: string,
+  existingPaths: Set<string>,
+): Promise<CodeContextEntry[]> {
+  const tokens = collectSearchTokens(errorLog, [...existingPaths]);
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const workspaceFiles = await collectWorkspaceFiles(root);
+  const results: CodeContextEntry[] = [];
+
+  for (const absolutePath of workspaceFiles) {
+    if (results.length >= MAX_CONTEXT_ENTRIES) {
+      break;
+    }
+
+    const relativePath = path.relative(root, absolutePath).replace(/\\/g, '/');
+    if (existingPaths.has(relativePath)) {
+      continue;
+    }
+
+    const basename = path.basename(relativePath);
+    const matchingToken = tokens.find(
+      (token) =>
+        basename.includes(token) ||
+        relativePath.includes(token) ||
+        token.includes(basename.replace(path.extname(basename), '')),
+    );
+
+    let raw: string | null = null;
+    let matchedLine: number | undefined;
+    let reason = '';
+
+    if (matchingToken) {
+      try {
+        raw = await readFile(absolutePath, 'utf8');
+        const lines = raw.split(/\r?\n/);
+        const contentIndex = lines.findIndex((line) => line.includes(matchingToken));
+        matchedLine = contentIndex >= 0 ? contentIndex + 1 : undefined;
+        reason = `Repository match for token "${matchingToken}" related to the failure.`;
+      } catch {
+        raw = null;
+      }
+    } else {
+      continue;
+    }
+
+    if (!raw) {
+      continue;
+    }
+
+    const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, matchedLine);
+    results.push({
+      path: relativePath,
+      snippet,
+      reason,
+      startLine,
+      endLine,
+    });
+  }
+
+  return results;
+}
+
+export async function loadCodeContext(event: PipelineEvent): Promise<CodeContextEntry[]> {
+  const cwd = process.cwd();
+  const snippets: CodeContextEntry[] = [];
+  const lineHints = parseLineHints(event.errorLog);
+
+  for (const candidate of collectCandidatePaths(event.errorLog).slice(0, 3)) {
+    const absolutePath = path.resolve(cwd, candidate);
+    const relativePath = path.relative(cwd, absolutePath);
+
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      continue;
+    }
+
+    try {
+      const raw = await readFile(absolutePath, 'utf8');
+      const hintedLine = lineHints.get(candidate)?.[0];
+      const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, hintedLine);
+
+      snippets.push({
+        path: candidate,
+        snippet,
+        reason: hintedLine
+          ? `Referenced by the pipeline error log around line ${hintedLine}.`
+          : 'Referenced by the pipeline error log or import trace.',
+        startLine,
+        endLine,
+      });
+    } catch {
+      // Ignore missing files so the rest of the debate can continue.
+    }
+  }
+
+  const repoMatches = await searchWorkspaceContext(
+    cwd,
+    event.errorLog,
+    new Set(snippets.map((entry) => entry.path)),
+  );
+
+  return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
 }
 
 function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string): AgentFinding {
@@ -72,6 +372,7 @@ export async function analyzeWithPrompt(
   prompt: string,
   event: PipelineEvent,
 ): Promise<AgentFinding> {
+  const codeContext = await loadCodeContext(event);
   const userMessage = JSON.stringify(
     {
       eventId: event.eventId,
@@ -81,6 +382,7 @@ export async function analyzeWithPrompt(
       failureType: event.failureType,
       timestamp: event.timestamp.toISOString(),
       errorLog: event.errorLog,
+      codeContext,
     },
     null,
     2,

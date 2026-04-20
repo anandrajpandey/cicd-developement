@@ -15,7 +15,7 @@ export function SignOutButton() {
           void signOut({ callbackUrl: '/login' });
         });
       }}
-      className="rounded-2xl border border-line px-3 py-2 text-xs font-medium text-mist/72 transition hover:border-mint/35 hover:text-white"
+      className="ghost-button rounded-2xl border px-3 py-2 text-xs font-medium"
     >
       {pending ? 'Signing out...' : 'Sign out'}
     </button>

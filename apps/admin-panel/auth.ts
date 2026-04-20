@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { db, users } from '@agentic-cicd/db';
-import { eq } from 'drizzle-orm';
 
 import authConfig from './auth.config';
 
@@ -30,7 +29,7 @@ function verifyFallbackPassword(password: string): boolean {
 
 async function authorizeAdmin(email: string, password: string) {
   const databaseUser = await db.query.users.findFirst({
-    where: eq(users.email, email),
+    where: (fields, operators) => operators.eq(fields.email, email),
   });
 
   if (databaseUser) {

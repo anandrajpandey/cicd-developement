@@ -13,7 +13,7 @@ import type {
   RoundExecutionSource,
 } from '@agentic-cicd/shared-types';
 
-import { agentFindings, challenges, db, decisions, rebuttals } from '@agentic-cicd/db';
+import { agentFindings, challenges, db, decisions, rebuttals, approvals } from '@agentic-cicd/db';
 
 import {
   buildAnalyzerAgent,
@@ -24,6 +24,7 @@ import {
 import { createTimeoutFinding, fallbackDecision } from '../agents/utils.js';
 
 import { logger } from '../logger.js';
+import { applyAutoMitigationLocally } from '../scripts/auto-mitigator.js';
 import { judgePrompt } from '../prompts/judge.js';
 import { createDebateStartedPayload, emitDebateEvent } from '../realtime.js';
 import {
@@ -90,6 +91,16 @@ async function persistFindings(findings: AgentFinding[], eventId: string): Promi
   );
 }
 
+async function emitRoundZeroFindings(eventId: string, findings: AgentFinding[]): Promise<void> {
+  for (const finding of findings) {
+    await emitDebateEvent('round:0:finding', eventId, {
+      eventId,
+      agentId: finding.agentId,
+      finding,
+    });
+  }
+}
+
 async function persistChallenges(foundChallenges: Challenge[], eventId: string): Promise<void> {
   if (foundChallenges.length === 0) {
     return;
@@ -108,6 +119,15 @@ async function persistChallenges(foundChallenges: Challenge[], eventId: string):
   );
 }
 
+async function emitRoundOneChallenges(eventId: string, foundChallenges: Challenge[]): Promise<void> {
+  for (const challenge of foundChallenges) {
+    await emitDebateEvent('round:1:challenge', eventId, {
+      eventId,
+      challenge,
+    });
+  }
+}
+
 async function persistRebuttals(foundRebuttals: Rebuttal[], eventId: string): Promise<void> {
   if (foundRebuttals.length === 0) {
     return;
@@ -124,6 +144,15 @@ async function persistRebuttals(foundRebuttals: Rebuttal[], eventId: string): Pr
       rebuttalFactor: rebuttal.rebuttalFactor,
     })),
   );
+}
+
+async function emitRoundTwoRebuttals(eventId: string, foundRebuttals: Rebuttal[]): Promise<void> {
+  for (const rebuttal of foundRebuttals) {
+    await emitDebateEvent('round:2:rebuttal', eventId, {
+      eventId,
+      rebuttal,
+    });
+  }
 }
 
 async function persistDecision(decision: Decision): Promise<void> {
@@ -159,6 +188,54 @@ function validateChallenge(challenge: Challenge | null): Challenge | null {
   return challenge;
 }
 
+function isWeakFinding(finding: AgentFinding): boolean {
+  const haystack = [
+    finding.hypothesis,
+    ...finding.evidence,
+    finding.proposedRemediation,
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return (
+    finding.confidence <= 0.25 ||
+    haystack.includes('insufficient') ||
+    haystack.includes('no specific') ||
+    haystack.includes('weak') ||
+    haystack.includes('unknown') ||
+    haystack.includes('more information') ||
+    haystack.includes('no specific changes')
+  );
+}
+
+function synthesizeHeuristicChallenges(findings: AgentFinding[]): Challenge[] {
+  const strongFindings = findings.filter((finding) => finding.confidence >= 0.45);
+  const weakFindings = findings.filter((finding) => isWeakFinding(finding));
+  const challengesByTarget = new Map<AgentId, Challenge>();
+
+  for (const target of weakFindings) {
+    const challenger = strongFindings.find((candidate) => candidate.agentId !== target.agentId);
+
+    if (!challenger || challengesByTarget.has(target.agentId)) {
+      continue;
+    }
+
+    challengesByTarget.set(target.agentId, {
+      challengeId: randomUUID(),
+      challengerAgentId: challenger.agentId,
+      targetAgentId: target.agentId,
+      counterHypothesis: `${challenger.agentId.replaceAll('_', ' ')} has stronger evidence than ${target.agentId.replaceAll('_', ' ')} for this failure, and the weaker finding should be revised toward the concrete failure signal.`,
+      evidence: [
+        `${challenger.agentId} reported ${(challenger.confidence * 100).toFixed(0)}% confidence from concrete failure evidence.`,
+        `${target.agentId} used low-confidence or unsupported language that does not fully match the failure log.`,
+      ],
+      confidence: Math.max(0.5, challenger.confidence - 0.1),
+    });
+  }
+
+  return [...challengesByTarget.values()];
+}
+
 function validateRebuttal(rebuttal: Rebuttal | null): Rebuttal | null {
   if (!rebuttal) {
     return null;
@@ -173,6 +250,32 @@ function validateRebuttal(rebuttal: Rebuttal | null): Rebuttal | null {
   }
 
   return rebuttal;
+}
+
+function synthesizeHeuristicRebuttals(
+  findings: AgentFinding[],
+  foundChallenges: Challenge[],
+): Rebuttal[] {
+  return foundChallenges.map((challenge) => {
+    const targetFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+    const concede = targetFinding ? isWeakFinding(targetFinding) : false;
+    const updatedConfidence = targetFinding
+      ? concede
+        ? Math.max(0.05, Math.min(0.35, targetFinding.confidence))
+        : Math.max(targetFinding.confidence, 0.45)
+      : concede
+        ? 0.2
+        : 0.45;
+
+    return {
+      rebuttalId: randomUUID(),
+      respondingAgentId: challenge.targetAgentId,
+      challengeId: challenge.challengeId,
+      position: concede ? 'CONCEDE' : 'DEFEND',
+      updatedConfidence,
+      rebuttalFactor: concede ? 0.7 : 0.85,
+    };
+  });
 }
 
 export function classifyRiskTier(compositeScore: number): RiskTier {
@@ -344,6 +447,7 @@ export async function runInitialAnalysis(
       agentCount: adkRoundZero.findings.length,
     });
 
+    await emitRoundZeroFindings(event.eventId, adkRoundZero.findings);
     await emitDebateEvent('round:0:complete', event.eventId, {
       eventId: event.eventId,
       findings: adkRoundZero.findings,
@@ -391,6 +495,7 @@ export async function runInitialAnalysis(
     agentCount: findings.length,
   });
 
+  await emitRoundZeroFindings(event.eventId, findings);
   await emitDebateEvent('round:0:complete', event.eventId, {
     eventId: event.eventId,
     findings,
@@ -441,26 +546,32 @@ export async function runCrossChallenges(
   const adkValidChallenges = adkChallenges
     .map((result) => validateChallenge(result.challenge))
     .filter((challenge): challenge is Challenge => challenge !== null);
+  const heuristicChallenges =
+    adkValidChallenges.length === 0 ? synthesizeHeuristicChallenges(findings) : [];
+  const finalizedAdkChallenges =
+    adkValidChallenges.length > 0 ? adkValidChallenges : heuristicChallenges;
 
   if (adkChallengesCompleted || !eventId) {
     if (eventId && (options.persist ?? true)) {
-      await persistChallenges(adkValidChallenges, eventId);
+      await persistChallenges(finalizedAdkChallenges, eventId);
     }
 
     logger.info('Cross-challenge round complete via ADK.', {
       eventId,
-      challengeCount: adkValidChallenges.length,
+      challengeCount: finalizedAdkChallenges.length,
+      heuristic: adkValidChallenges.length === 0 && heuristicChallenges.length > 0,
     });
 
     if (eventId) {
+      await emitRoundOneChallenges(eventId, finalizedAdkChallenges);
       await emitDebateEvent('round:1:complete', eventId, {
         eventId,
-        challenges: adkValidChallenges,
+        challenges: finalizedAdkChallenges,
       });
     }
 
     return {
-      data: adkValidChallenges,
+      data: finalizedAdkChallenges,
       source: 'ADK',
     };
   }
@@ -482,25 +593,29 @@ export async function runCrossChallenges(
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
     .map((challenge) => validateChallenge(challenge))
     .filter((challenge): challenge is Challenge => challenge !== null);
+  const finalizedNativeChallenges =
+    validChallenges.length > 0 ? validChallenges : synthesizeHeuristicChallenges(findings);
 
   if (eventId && (options.persist ?? true)) {
-    await persistChallenges(validChallenges, eventId);
+    await persistChallenges(finalizedNativeChallenges, eventId);
   }
 
   logger.info('Cross-challenge round complete.', {
     eventId,
-    challengeCount: validChallenges.length,
+    challengeCount: finalizedNativeChallenges.length,
+    heuristic: validChallenges.length === 0 && finalizedNativeChallenges.length > 0,
   });
 
   if (eventId) {
+    await emitRoundOneChallenges(eventId, finalizedNativeChallenges);
     await emitDebateEvent('round:1:complete', eventId, {
       eventId,
-      challenges: validChallenges,
+      challenges: finalizedNativeChallenges,
     });
   }
 
   return {
-    data: validChallenges,
+    data: finalizedNativeChallenges,
     source: 'NATIVE',
   };
 }
@@ -545,26 +660,34 @@ export async function runRebuttals(
   const adkValidRebuttals = adkRebuttalResults
     .map((result) => validateRebuttal(result.rebuttal))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
+  const heuristicRebuttals =
+    foundChallenges.length > 0 && adkValidRebuttals.length === 0
+      ? synthesizeHeuristicRebuttals(findings, foundChallenges)
+      : [];
+  const finalizedAdkRebuttals =
+    adkValidRebuttals.length > 0 ? adkValidRebuttals : heuristicRebuttals;
 
   if (adkRebuttalsCompleted || !eventId) {
     if (eventId && (options.persist ?? true)) {
-      await persistRebuttals(adkValidRebuttals, eventId);
+      await persistRebuttals(finalizedAdkRebuttals, eventId);
     }
 
     logger.info('Rebuttal round complete via ADK.', {
       eventId,
-      rebuttalCount: adkValidRebuttals.length,
+      rebuttalCount: finalizedAdkRebuttals.length,
+      heuristic: adkValidRebuttals.length === 0 && heuristicRebuttals.length > 0,
     });
 
     if (eventId) {
+      await emitRoundTwoRebuttals(eventId, finalizedAdkRebuttals);
       await emitDebateEvent('round:2:complete', eventId, {
         eventId,
-        rebuttals: adkValidRebuttals,
+        rebuttals: finalizedAdkRebuttals,
       });
     }
 
     return {
-      data: adkValidRebuttals,
+      data: finalizedAdkRebuttals,
       source: 'ADK',
     };
   }
@@ -593,25 +716,29 @@ export async function runRebuttals(
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
     .map((rebuttal) => validateRebuttal(rebuttal))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
+  const finalizedNativeRebuttals =
+    validRebuttals.length > 0 ? validRebuttals : synthesizeHeuristicRebuttals(findings, foundChallenges);
 
   if (eventId && (options.persist ?? true)) {
-    await persistRebuttals(validRebuttals, eventId);
+    await persistRebuttals(finalizedNativeRebuttals, eventId);
   }
 
   logger.info('Rebuttal round complete.', {
     eventId,
-    rebuttalCount: validRebuttals.length,
+    rebuttalCount: finalizedNativeRebuttals.length,
+    heuristic: validRebuttals.length === 0 && finalizedNativeRebuttals.length > 0,
   });
 
   if (eventId) {
+    await emitRoundTwoRebuttals(eventId, finalizedNativeRebuttals);
     await emitDebateEvent('round:2:complete', eventId, {
       eventId,
-      rebuttals: validRebuttals,
+      rebuttals: finalizedNativeRebuttals,
     });
   }
 
   return {
-    data: validRebuttals,
+    data: finalizedNativeRebuttals,
     source: 'NATIVE',
   };
 }
@@ -702,4 +829,26 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
     foundRebuttals: rebuttals.data,
     decision: judgeSynthesis.data,
   });
+
+  if (judgeSynthesis.data.riskTier === 'LOW') {
+    await db.insert(approvals).values({
+      approvalId: randomUUID(),
+      decisionId: judgeSynthesis.data.decisionId,
+      approver: 'Auto-Mitigator',
+      action: 'APPROVE',
+      justification: 'Automated mitigation for LOW risk pipeline failure.',
+      timestamp: new Date(),
+    });
+
+    logger.info('Low risk decision automatically mitigated.', {
+      eventId: event.eventId,
+      decisionId: judgeSynthesis.data.decisionId,
+    });
+
+    try {
+      await applyAutoMitigationLocally(event.branch, judgeSynthesis.data.recommendedAction);
+    } catch (e) {
+      logger.error('Failed to write and push automated fix.', { error: e });
+    }
+  }
 }

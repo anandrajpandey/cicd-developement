@@ -4,6 +4,7 @@ import { ArrowRight, Flame, ShieldAlert, Waves } from 'lucide-react';
 
 import { ExecutionPathStrip, getAdkCoverage } from '../components/execution-path-strip';
 import { ExecutionStatusCard } from '../components/execution-status-card';
+import { LiveCommitBanner } from '../components/live-commit-banner';
 import { RiskBadge } from '../components/risk-badge';
 import { getTrpcCaller } from '../lib/trpc/server';
 
@@ -16,34 +17,41 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <section className="panel overflow-hidden p-6">
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+      <LiveCommitBanner />
+      <section className="panel animated-panel overflow-hidden p-8">
+        <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <div>
-            <p className="eyebrow">Operations Surface</p>
-            <h1 className="mt-3 max-w-2xl text-4xl font-semibold tracking-tight text-white">
-              Live debate-driven release triage with a sharp, operator-first control plane.
+            <p className="eyebrow">Mission Control</p>
+            <h1 className="mt-3 max-w-3xl text-5xl font-semibold tracking-tight text-white">
+              Debate-driven CI triage with a professional desktop command surface.
             </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-mist/72">
-              Monitor event intake, compare agent positions, inspect risk synthesis, and step in
-              only when MEDIUM or HIGH decisions need a human gate.
+            <p className="mt-5 max-w-3xl text-sm leading-7 text-mist/72">
+              Watch specialist agents argue over failures, inspect rebuttals in detail, and move
+              from raw incident logs to precise operator action without leaving the control plane.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 href="/events/new"
-                className="rounded-2xl bg-mint px-5 py-3 text-sm font-semibold text-ink"
+                className="glow-button rounded-2xl px-5 py-3 text-sm font-semibold"
               >
                 Submit Event
               </Link>
               <Link
-                href="/approvals"
-                className="rounded-2xl border border-line px-5 py-3 text-sm font-semibold text-white"
+                href="/debate"
+                className="ghost-button rounded-2xl border px-5 py-3 text-sm font-semibold"
               >
-                Open Approval Queue
+                Open Debate Console
+              </Link>
+              <Link
+                href="/approvals"
+                className="ghost-button rounded-2xl border px-5 py-3 text-sm font-semibold"
+              >
+                Approval Queue
               </Link>
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-4">
             <div className="metric-card">
               <div className="flex items-center gap-3">
                 <Waves className="h-5 w-5 text-mint" />
@@ -88,7 +96,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="panel p-6">
+      <section className="panel animated-panel p-6">
         <div>
           <p className="eyebrow">Recent Decisions</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline outcomes</h2>
@@ -110,7 +118,7 @@ export default async function DashboardPage() {
               <Link
                 key={item.decisionId}
                 href={`/events/${item.eventId}`}
-                className="flex items-center justify-between rounded-3xl border border-line bg-black/15 px-5 py-4 transition hover:border-mint/35 hover:bg-black/25"
+                className="stage-card flex items-center justify-between rounded-3xl border border-line bg-[rgba(5,13,22,0.64)] px-5 py-4 transition hover:border-mint/25 hover:bg-[rgba(6,18,30,0.82)]"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">

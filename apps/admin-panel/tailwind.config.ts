@@ -5,14 +5,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: '#07130f',
-        forest: '#0d2018',
-        panel: '#11271d',
-        mist: '#d7f7dd',
+        ink: '#03131a',
+        forest: '#0a1b28',
+        panel: '#0c1f31',
+        mist: '#d9ebfa',
         mint: '#6df2a3',
-        signal: '#33c46c',
-        glow: '#163c2b',
-        line: '#254634',
+        signal: '#2ee3a0',
+        glow: '#103527',
+        line: '#29455d',
       },
       boxShadow: {
         panel: '0 24px 80px rgba(0, 0, 0, 0.35)',

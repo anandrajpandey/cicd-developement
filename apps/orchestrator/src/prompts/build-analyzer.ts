@@ -16,7 +16,7 @@ Respond with JSON only using this shape:
   "hypothesis": "one-sentence root cause",
   "evidence": ["short supporting point", "short supporting point"],
   "confidence": 0.0,
-  "proposedRemediation": "clear next action"
+  "proposedRemediation": "concrete code or config change"
 }
 
 Rules:
@@ -25,5 +25,12 @@ Rules:
 - When the event explicitly shows module resolution or import errors, do not mark the build case as weak.
 - If the failure log does not support a build-specific explanation, say so directly and use low confidence.
 - Never invent stack traces, exceptions, code changes, or files that are not present in the event.
-- Keep the remediation practical and concise.
+- Prefer an actual patch direction over a summary.
+- If a file path or import trace exists, reference the likely file and show the exact import/config change to make.
+- If line-numbered codeContext is available, mention the likely line range to change.
+- Write proposedRemediation as 2 to 8 lines using this style when possible:
+  File: path/to/file
+  Lines: start-end
+  Change:
+  <exact code or config to add/replace>
 - Do not wrap the JSON in markdown.`;

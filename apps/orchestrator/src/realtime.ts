@@ -22,13 +22,26 @@ export interface DebateRealtimePayloads {
     branch: string;
     failureType: string;
   };
+  'round:0:finding': {
+    eventId: string;
+    agentId: AgentFinding['agentId'];
+    finding: AgentFinding;
+  };
   'round:0:complete': {
     eventId: string;
     findings: AgentFinding[];
   };
+  'round:1:challenge': {
+    eventId: string;
+    challenge: Challenge;
+  };
   'round:1:complete': {
     eventId: string;
     challenges: Challenge[];
+  };
+  'round:2:rebuttal': {
+    eventId: string;
+    rebuttal: Rebuttal;
   };
   'round:2:complete': {
     eventId: string;
@@ -56,6 +69,7 @@ async function handleRedisMessage(_channel: string, rawPayload: string): Promise
   try {
     const message = JSON.parse(rawPayload) as DebateEventEnvelope;
     io.to(`debate:${message.eventId}`).emit(message.eventName, message.payload);
+    io.emit(message.eventName, message.payload);
   } catch (error) {
     logger.error('Failed to parse debate event from Redis.', { error, rawPayload });
   }
@@ -111,6 +125,7 @@ export async function emitDebateEvent<K extends keyof DebateRealtimePayloads>(
 
     if (io) {
       io.to(`debate:${eventId}`).emit(eventName, payload);
+      io.emit(eventName, payload);
     }
   }
 }
