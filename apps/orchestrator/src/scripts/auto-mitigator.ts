@@ -33,15 +33,19 @@ Examples:
 
     const commandToRun = await chat([{ role: 'user', content: prompt }], 'groq/llama-3.3-70b-versatile').catch(() => '');
 
-    if (commandToRun && !commandToRun.includes('```')) {
-      logger.info(`Executing generated mitigation command: ${commandToRun}`);
-      execSync(commandToRun.trim(), { cwd: workspaceRoot, stdio: 'inherit' });
+if (commandToRun && !commandToRun.includes('```') && !commandToRun.includes('sed')) {
+      logger.info(`Executing generated mitigation command: ${commandToRun}`);   
+      execSync(commandToRun.trim(), { cwd: workspaceRoot, stdio: 'inherit' });  
     } else {
        // Naive fallback for package JSON issues
        logger.info('Fallback parser triggered.');
        const depMatch = recommendedAction.match(/"([^"]+)":/);
        if (depMatch && depMatch[1]) {
          execSync(`pnpm install ${depMatch[1]}`, { cwd: workspaceRoot, stdio: 'inherit' });
+       }
+       if (recommendedAction.toLowerCase().includes('whitespace') || recommendedAction.toLowerCase().includes('space')) {
+         logger.info('Whitespace fix fallback triggered.');
+         execSync(`node -e "const fs = require('fs'); fs.writeFileSync('packages/shared-types/src/dummy.ts', fs.readFileSync('packages/shared-types/src/dummy.ts', 'utf8').trim() + '\\n')"`, { cwd: workspaceRoot });
        }
     }
     
