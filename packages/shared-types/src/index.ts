@@ -7,7 +7,7 @@ export const agentIdSchema = z.enum([
   'dependency_checker',
 ]);
 
-export const rebuttalPositionSchema = z.enum(['DEFEND', 'CONCEDE']);
+export const rebuttalPositionSchema = z.enum(['DEFEND', 'CONCEDE', 'COMPROMISE']);
 
 export const riskTierSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 
@@ -54,9 +54,9 @@ export const rebuttalSchema = z.object({
   rebuttalId: z.string().min(1),
   respondingAgentId: agentIdSchema,
   challengeId: z.string().min(1),
-  position: rebuttalPositionSchema,
+  position: z.enum(['DEFEND', 'CONCEDE', 'COMPROMISE']),
   updatedConfidence: z.number().min(0).max(1),
-  rebuttalFactor: z.union([z.literal(0.85), z.literal(0.7)]),
+  rebuttalFactor: z.number().min(0).max(1),
 });
 
 export const decisionSchema = z.object({

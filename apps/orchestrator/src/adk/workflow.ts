@@ -31,6 +31,7 @@ import { codeReviewerPrompt } from '../prompts/code-reviewer.js';
 import { dependencyCheckerPrompt } from '../prompts/dependency-checker.js';
 import { judgePrompt } from '../prompts/judge.js';
 import { testAnalyzerPrompt } from '../prompts/test-analyzer.js';
+import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.js';
 
 const PRIMARY_MODEL = 'groq/llama-3.3-70b-versatile';
 const FALLBACK_MODEL = 'ollama/mistral:7b';
@@ -54,6 +55,7 @@ const challengePayloadSchema = challengeSchema.pick({
 const rebuttalPayloadSchema = rebuttalSchema.pick({
   position: true,
   updatedConfidence: true,
+  rebuttalFactor: true,
 });
 const roundZeroAgentIds = [
   'build_analyzer',
@@ -272,12 +274,15 @@ function withRebuttalOutputRules(instruction: string): string {
 
 Respond with JSON only in this shape:
 {
-  "position": "DEFEND" | "CONCEDE",
-  "updatedConfidence": 0.0
+  "position": "DEFEND" | "CONCEDE" | "COMPROMISE",
+  "updatedConfidence": 0.0,
+  "rebuttalFactor": 0.0
 }
 
 Rules:
+- position must be one of DEFEND, CONCEDE, or COMPROMISE.
 - updatedConfidence must be between 0 and 1.
+- rebuttalFactor must be between 0 and 1, reflecting how much of the original confidence remains or how impactful the rebuttal is.
 - Do not include markdown fences or extra commentary.`;
 }
 
@@ -318,27 +323,23 @@ export const crossChallengeAdkAgent = new LlmAgent({
   model: PRIMARY_MODEL,
   description: 'Reviews findings for contradictions and proposes valid challenges.',
   instruction: withFallbackNote(
-    withChallengeOutputRules(
-      'Review your own finding and the other findings, then surface the strongest contradiction against another agent when warranted.',
+      withChallengeOutputRules(crossChallengePrompt),
     ),
-  ),
-  outputKey: 'cross_challenge_result',
-});
+    outputKey: 'cross_challenge_result',
+  });
 
-export const rebuttalAdkAgent = new LlmAgent({
-  name: 'rebuttal',
-  model: PRIMARY_MODEL,
-  description: 'Defends or concedes in response to a challenge.',
-  instruction: withFallbackNote(
-    withRebuttalOutputRules(
-      'Respond to a challenge by defending or conceding, updating confidence accordingly.',
+  export const rebuttalAdkAgent = new LlmAgent({
+    name: 'rebuttal',
+    model: PRIMARY_MODEL,
+    description: 'Defends or concedes in response to a challenge.',
+    instruction: withFallbackNote(
+      withRebuttalOutputRules(rebuttalPrompt),
     ),
-  ),
-  outputKey: 'rebuttal_result',
-});
+    outputKey: 'rebuttal_result',
+  });
 
-export const judgeAdkAgent = new LlmAgent({
-  name: 'judge',
+  export const judgeAdkAgent = new LlmAgent({
+    name: 'judge',
   model: PRIMARY_MODEL,
   description: 'Synthesizes final reasoning, score interpretation, and recommended action.',
   instruction: withFallbackNote(withJudgeOutputRules(judgePrompt)),
@@ -909,7 +910,7 @@ export async function executeAdkRebuttal(input: {
           challengeId: input.challenge.challengeId,
           position: rebuttal.position,
           updatedConfidence: clampConfidence(rebuttal.updatedConfidence),
-          rebuttalFactor: rebuttal.position === 'DEFEND' ? (0.85 as const) : (0.7 as const),
+          rebuttalFactor: clampConfidence(rebuttal.rebuttalFactor),
         },
       };
     })();
@@ -942,3 +943,8 @@ export function getAdkWorkflowSummary() {
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };
 }
+
+
+
+
+

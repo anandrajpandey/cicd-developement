@@ -19,7 +19,7 @@ const agentIdValues = [
   'dependency_checker',
 ] as const;
 
-const rebuttalPositionValues = ['DEFEND', 'CONCEDE'] as const;
+const rebuttalPositionValues = ['DEFEND', 'CONCEDE', 'COMPROMISE'] as const;
 const riskTierValues = ['LOW', 'MEDIUM', 'HIGH'] as const;
 const approvalActionValues = ['APPROVE', 'REJECT'] as const;
 

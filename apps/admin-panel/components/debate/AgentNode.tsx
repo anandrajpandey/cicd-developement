@@ -8,7 +8,7 @@ export type AgentNodeData = {
   label: string
   status: AgentStatus
   confidence?: number
-  rebuttalPosition?: 'DEFEND' | 'CONCEDE'
+  rebuttalPosition?: 'DEFEND' | 'CONCEDE' | 'COMPROMISE'
 }
 
 const STATUS_RING: Record<AgentStatus, string> = {
@@ -74,7 +74,7 @@ export function AgentNode({ data }: NodeProps) {
       
       <AnimatePresence>
         {confidence !== undefined && (
-          <motion.div initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="mt-3">
+          <motion.div key="confidence" initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="mt-3">
             <div className="flex justify-between items-center mb-1.5">
               <span className="text-[9px] uppercase tracking-widest text-mist/60">Confidence</span>
               <span className="text-[9px] font-mono text-white/90">{Math.round(confidence * 100)}%</span>
@@ -90,8 +90,8 @@ export function AgentNode({ data }: NodeProps) {
         )}
         
         {rebuttalPosition && (
-          <motion.div initial={{opacity:0, y:-5}} animate={{opacity:1, y:0}} className="absolute -top-3 -right-2">
-            <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-full shadow-lg ${rebuttalPosition === 'DEFEND' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
+          <motion.div key="rebuttal" initial={{opacity:0, y:-5}} animate={{opacity:1, y:0}} className="absolute -top-3 -right-2">
+            <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-full shadow-lg ${rebuttalPosition === 'DEFEND' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : rebuttalPosition === 'COMPROMISE' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
               {rebuttalPosition}
             </span>
           </motion.div>
@@ -100,3 +100,4 @@ export function AgentNode({ data }: NodeProps) {
     </div>
   )
 }
+

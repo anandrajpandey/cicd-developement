@@ -241,9 +241,7 @@ function validateRebuttal(rebuttal: Rebuttal | null): Rebuttal | null {
     return null;
   }
 
-  if (rebuttal.rebuttalFactor !== 0.85 && rebuttal.rebuttalFactor !== 0.7) {
-    return null;
-  }
+  if (typeof rebuttal.rebuttalFactor !== 'number' || rebuttal.rebuttalFactor < 0 || rebuttal.rebuttalFactor > 1) { return null; }
 
   if (rebuttal.updatedConfidence < 0 || rebuttal.updatedConfidence > 1) {
     return null;
@@ -858,3 +856,4 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
     });
   }
 }
+
