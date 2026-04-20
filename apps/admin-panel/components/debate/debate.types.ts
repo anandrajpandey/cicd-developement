@@ -1,11 +1,9 @@
-'use client';
-
 export type AgentId =
   | 'build_analyzer'
   | 'code_reviewer'
   | 'test_analyzer'
   | 'dependency_checker'
-  | 'judge';
+  | 'judge'
 
 export type AgentStatus =
   | 'idle'
@@ -14,38 +12,38 @@ export type AgentStatus =
   | 'challenging'
   | 'defending'
   | 'conceding'
-  | 'judging';
+  | 'judging'
 
-export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
+export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH'
 
 export interface AgentFinding {
-  findingId: string;
-  agentId: AgentId;
-  hypothesis: string;
-  evidence: string[];
-  confidence: number;
-  proposedRemediation: string;
+  findingId: string
+  agentId: AgentId
+  hypothesis: string
+  evidence: string[]
+  confidence: number        // 0.0 - 1.0
+  proposedRemediation: string
 }
 
 export interface Challenge {
-  challengeId: string;
-  challengerAgentId: AgentId;
-  targetAgentId: AgentId;
-  counterHypothesis: string;
+  challengeId: string
+  challengerAgentId: AgentId
+  targetAgentId: AgentId
+  counterHypothesis: string
 }
 
 export interface Rebuttal {
-  rebuttalId: string;
-  respondingAgentId: AgentId;
-  position: 'DEFEND' | 'CONCEDE';
-  updatedConfidence: number;
-  rebuttalFactor: number;
+  rebuttalId: string
+  respondingAgentId: AgentId
+  position: 'DEFEND' | 'CONCEDE'
+  updatedConfidence: number
+  rebuttalFactor: number
 }
 
 export interface Decision {
-  decisionId: string;
-  compositeScore: number;
-  riskTier: RiskTier;
-  reasoning: string;
-  recommendedAction: string;
+  decisionId: string
+  compositeScore: number
+  riskTier: RiskTier
+  reasoning: string
+  recommendedAction: string
 }

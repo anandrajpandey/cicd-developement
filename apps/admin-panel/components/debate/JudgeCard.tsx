@@ -1,66 +1,60 @@
-'use client';
+'use client'
+import { motion } from 'framer-motion'
+import { type Decision, type RiskTier } from './debate.types'
 
-import { motion } from 'framer-motion';
-
-import type { Decision } from './debate.types';
-
-const TIER_STYLE = {
-  LOW: {
-    ring: 'border-emerald-400/30',
-    bg: 'bg-[rgba(8,31,22,0.86)]',
-    text: 'text-emerald-300',
-  },
-  MEDIUM: {
-    ring: 'border-amber-400/30',
-    bg: 'bg-[rgba(36,24,8,0.86)]',
-    text: 'text-amber-300',
-  },
-  HIGH: {
-    ring: 'border-rose-400/30',
-    bg: 'bg-[rgba(43,13,24,0.86)]',
-    text: 'text-rose-300',
-  },
-} as const;
+const TIER_STYLE: Record<RiskTier, { ring: string; bg: string; text: string }> = {
+  LOW:    { ring: 'border-green-400',  bg: 'bg-green-50 dark:bg-green-950',  text: 'text-green-500'  },
+  MEDIUM: { ring: 'border-amber-400',  bg: 'bg-amber-50 dark:bg-amber-950',  text: 'text-amber-500'  },
+  HIGH:   { ring: 'border-red-400',    bg: 'bg-red-50 dark:bg-red-950',      text: 'text-red-500'    },
+}
 
 export function JudgeCard({ decision }: { decision: Decision }) {
-  const style = TIER_STYLE[decision.riskTier];
+  const style = TIER_STYLE[decision.riskTier] || TIER_STYLE.LOW;
 
   return (
-    <motion.section
-      initial={{ opacity: 0, scale: 0.94, y: 24 }}
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 170, damping: 18 }}
-      className={`border-l-2 ${style.ring} ${style.bg} px-5 py-5`}
+      transition={{ type: 'spring', delay: 0.3 }}
+      className={`mx-auto w-full max-w-2xl rounded-xl border p-6 shadow-xl ${style.ring} ${style.bg}`}
     >
-      <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.24em] text-mist/55">Judge Decision</div>
-          <div className="mt-2 text-2xl font-semibold text-white">Risk: {decision.riskTier}</div>
-        </div>
-        <div className={`text-sm font-semibold uppercase tracking-[0.22em] ${style.text}`}>
-          {(decision.compositeScore * 100).toFixed(1)} score
-        </div>
+      <div className="mb-4 flex items-center justify-between border-b border-zinc-500/20 pb-4">
+        <h2 className="text-xl font-extrabold text-zinc-800 dark:text-zinc-100 flex items-center">
+          <span className="mr-2 text-2xl">⚖</span> Judge decision
+        </h2>
+        <span className={`px-3 py-1 rounded-full font-bold text-sm ${style.text} bg-zinc-900/10 dark:bg-black/20`}>
+          {decision.riskTier} RISK
+        </span>
       </div>
 
-      <div className="mt-5">
-        <div className="h-2 w-full bg-[rgba(255,255,255,0.06)]">
-          <motion.div
-            className="h-2 bg-gradient-to-r from-[#36d399] via-[#5dffb2] to-[#8affc6]"
+      {/* Score meter */}
+      <div className="mb-6 flex flex-col space-y-2">
+        <div className="flex justify-between text-sm uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          <span>composite score</span>
+          <span className="font-bold">{(decision.compositeScore * 100).toFixed(1)}</span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
+          <motion.div 
+            className="h-full bg-yellow-500" 
             initial={{ width: 0 }}
-            animate={{ width: `${Math.max(6, decision.compositeScore * 100)}%` }}
-            transition={{ duration: 0.7, ease: 'easeOut' }}
+            animate={{ width: `${decision.compositeScore * 100}%` }}
+            transition={{ duration: 0.8 }}
           />
         </div>
       </div>
 
-      <p className="mt-5 text-sm leading-7 text-mist/82">{decision.reasoning}</p>
-
-      <div className="mt-6 border-t border-white/5 pt-4">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-mist/55">recommended action</div>
-        <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">
-          {decision.recommendedAction}
-        </pre>
+      <div className="mb-6 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+        {decision.reasoning}
       </div>
-    </motion.section>
-  );
+
+      <div className="rounded-lg bg-white/50 p-4 dark:bg-black/20 border border-zinc-500/10">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Recommended action
+        </h3>
+        <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+          {decision.recommendedAction}
+        </p>
+      </div>
+    </motion.div>
+  )
 }
