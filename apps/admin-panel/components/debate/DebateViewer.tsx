@@ -7,9 +7,6 @@ import { io } from 'socket.io-client';
 
 import type { DecisionDetail } from '../../lib/orchestrator';
 import { DebateGraph } from './DebateGraph';
-import { FindingCard } from './FindingCard';
-import { JudgeCard } from './JudgeCard';
-import { RoundLabel } from './RoundLabel';
 import type {
   AgentFinding,
   AgentId,
@@ -32,7 +29,7 @@ const DEFAULT_STATUSES = Object.fromEntries(ALL_AGENTS.map((id) => [id, 'idle'])
   AgentStatus
 >;
 
-function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding {
+function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding { 
   return {
     findingId: finding.findingId,
     agentId: finding.agentId as AgentId,
@@ -52,7 +49,7 @@ function toChallenge(challenge: DecisionDetail['challenges'][number]): Challenge
   };
 }
 
-function toRebuttal(rebuttal: DecisionDetail['rebuttals'][number]): Rebuttal {
+function toRebuttal(rebuttal: DecisionDetail['rebuttals'][number]): Rebuttal {  
   return {
     rebuttalId: rebuttal.rebuttalId,
     respondingAgentId: rebuttal.respondingAgentId as AgentId,
@@ -127,7 +124,7 @@ export function DebateViewer({
   initialData?: DecisionDetail | null;
 }) {
   const initialFindings = useMemo(
-    () => (initialData?.findings ?? []).map((finding) => toFinding(finding)),
+    () => (initialData?.findings ?? []).map((finding) => toFinding(finding)),   
     [initialData],
   );
   const initialChallenges = useMemo(
@@ -145,29 +142,35 @@ export function DebateViewer({
     [initialData],
   );
   const initialDecision = useMemo(
-    () => (initialData?.decision ? toDecision(initialData.decision) : null),
+    () => (initialData?.decision ? toDecision(initialData.decision) : null),    
     [initialData],
   );
 
-  const [round, setRound] = useState(() =>
+  const [liveRound, setLiveRound] = useState(() =>
     deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision),
   );
-  const [statuses, setStatuses] = useState<Record<AgentId, AgentStatus>>(() =>
+  const [selectedRound, setSelectedRound] = useState<number | 'live'>('live');
+  
+  const currentRound = selectedRound === 'live' ? liveRound : selectedRound;
+
+  const [statuses, setStatuses] = useState<Record<AgentId, AgentStatus>>(() =>  
     hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
   );
   const [confidences, setConfidences] = useState<Partial<Record<AgentId, number>>>(() =>
     Object.fromEntries(initialFindings.map((finding) => [finding.agentId, finding.confidence])),
   );
-  const [findings, setFindings] = useState<AgentFinding[]>(initialFindings);
-  const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
+  const [findings, setFindings] = useState<AgentFinding[]>(initialFindings);    
+  const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges); 
   const [rebuttals, setRebuttals] = useState<Partial<Record<AgentId, Rebuttal>>>(initialRebuttals);
-  const [decision, setDecision] = useState<Decision | null>(initialDecision);
+  const [decision, setDecision] = useState<Decision | null>(initialDecision);   
+  
+  const [hoveredNode, setHoveredNode] = useState<AgentId | null>(null);
 
   const setStatus = (agentId: AgentId, status: AgentStatus) =>
     setStatuses((state) => ({ ...state, [agentId]: status }));
 
   useEffect(() => {
-    setRound(deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision));
+    setLiveRound(deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision));
     setStatuses(
       hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
     );
@@ -188,7 +191,7 @@ export function DebateViewer({
     socket.on('debate:started', (payload: { eventId: string }) => {
       if (payload.eventId !== eventId) return;
 
-      setRound(0);
+      setLiveRound(0);
       setDecision(null);
       setFindings([]);
       setChallenges([]);
@@ -215,10 +218,10 @@ export function DebateViewer({
         finding: AgentFinding;
       }) => {
         if (incomingEventId !== eventId) return;
-        if (finding.agentId !== agentId || finding.agentId === 'judge') return;
+        if (finding.agentId !== agentId || finding.agentId === 'judge') return; 
 
         setFindings((state) => {
-          if (state.some((entry) => entry.findingId === finding.findingId)) {
+          if (state.some((entry) => entry.findingId === finding.findingId)) {   
             return state;
           }
           return [...state, finding];
@@ -238,7 +241,7 @@ export function DebateViewer({
         findings?: AgentFinding[];
       }) => {
         if (incomingEventId !== eventId) return;
-        setRound(1);
+        setLiveRound(1);
         if (incomingFindings?.length) {
           setFindings(incomingFindings);
           setConfidences(
@@ -276,7 +279,7 @@ export function DebateViewer({
         challenges?: Challenge[];
       }) => {
         if (incomingEventId !== eventId) return;
-        setRound(2);
+        setLiveRound(2);
         if (incomingChallenges) {
           setChallenges(incomingChallenges);
         }
@@ -309,7 +312,7 @@ export function DebateViewer({
         rebuttals?: Array<DecisionDetail['rebuttals'][number]>;
       }) => {
         if (incomingEventId !== eventId) return;
-        setRound(3);
+        setLiveRound(3);
         setStatus('judge', 'judging');
         if (incomingRebuttals) {
           const mapped = Object.fromEntries(
@@ -328,11 +331,11 @@ export function DebateViewer({
       ({ decision: incomingDecision }: { decision: DecisionDetail['decision'] | Decision }) => {
         const normalized =
           'eventId' in incomingDecision
-            ? toDecision(incomingDecision as DecisionDetail['decision'])
+            ? toDecision(incomingDecision as DecisionDetail['decision'])        
             : (incomingDecision as Decision);
         if (
           'eventId' in incomingDecision &&
-          (incomingDecision as DecisionDetail['decision']).eventId !== eventId
+          (incomingDecision as DecisionDetail['decision']).eventId !== eventId  
         ) {
           return;
         }
@@ -347,43 +350,130 @@ export function DebateViewer({
     };
   }, [eventId]);
 
+  const displayedFindings = currentRound >= 0 ? findings : [];
+  const displayedChallenges = currentRound >= 1 ? challenges : [];
+  const displayedRebuttals = currentRound >= 2 ? rebuttals : {};
+  const displayedDecision = currentRound >= 3 ? decision : null;
+
   return (
-    <section className="flex min-h-[calc(100vh-12rem)] flex-col bg-[rgba(6,14,24,0.82)]">
-      <div className="px-6 pt-6">
-        <RoundLabel round={round} />
+    <div className="fixed inset-0 z-[100] bg-[#0A0A0A] overflow-hidden flex flex-col font-sans">
+      <div className="flex-none p-4 flex items-center justify-between border-b border-white/5 bg-[#0F1218]">
+        <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-white tracking-widest uppercase">X-Ray Trace</h1>
+            <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
+        </div>
+        <div className="flex bg-white/5 rounded-lg p-1 gap-1">
+            <button onClick={() => setSelectedRound('live')} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Live</button>
+            <button onClick={() => setSelectedRound(0)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 0 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R0 Analysis</button>
+            <button onClick={() => setSelectedRound(1)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 1 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R1 Challenge</button>
+            <button onClick={() => setSelectedRound(2)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 2 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R2 Defense</button>
+            <button onClick={() => setSelectedRound(3)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>R3 Decision</button>
+            <a href="/" className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20">Close</a>
+        </div>
       </div>
 
-      <div className="px-2 pt-4">
-        <DebateGraph
-          statuses={statuses}
-          confidences={confidences}
-          challenges={challenges}
-          rebuttals={rebuttals}
-        />
+      <div className="flex-1 relative flex">
+        <div className="flex-1 relative h-full w-full">
+            <DebateGraph
+            statuses={statuses}
+            confidences={confidences}
+            challenges={displayedChallenges}
+            rebuttals={displayedRebuttals}
+            onHoverNode={setHoveredNode}
+            />
+        </div>
+
+        <AnimatePresence>
+          {hoveredNode && (
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 20, stiffness: 200 }}
+              className="absolute right-0 top-0 bottom-0 w-[400px] bg-[#0F1218]/95 backdrop-blur-3xl border-l border-white/5 p-6 shadow-2xl z-10 overflow-y-auto"
+            >
+              <h2 className="text-xl font-mono text-white tracking-widest uppercase mb-6 pb-2 border-b border-white/10">
+                {hoveredNode.replace('_', ' ')}
+              </h2>
+
+              {hoveredNode === 'judge' ? (
+                displayedDecision ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-white/5">
+                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Decision</p>
+                        <p className="text-sm text-white/90">{displayedDecision.recommendedAction}</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-white/5">
+                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Reasoning</p>
+                        <p className="text-sm text-white/90">{displayedDecision.reasoning}</p>
+                    </div>
+                    <div className="flex justify-between p-4 rounded-xl bg-white/5">
+                        <div>
+                            <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Risk Tier</p>
+                            <p className="text-sm font-mono text-white/90">{displayedDecision.riskTier}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Score</p>
+                            <p className="text-sm font-mono text-white/90">{Math.round(displayedDecision.compositeScore * 100)}%</p>
+                        </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-mist/50 italic text-sm">Judge is pending review...</p>
+                )
+              ) : (
+                <div className="space-y-6">
+                  {displayedFindings.find((f) => f.agentId === hoveredNode) && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                         <div className="px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-full text-xs font-semibold tracking-wider">Analysis Finding</div>
+                         <div className="text-xs font-mono text-mist/60">Ready</div>
+                      </div>
+                      <div className="bg-white/5 p-4 rounded-xl space-y-3">
+                        <div>
+                            <p className="text-[10px] uppercase text-mist/50 font-semibold tracking-widest mb-1">Hypothesis</p>
+                            <p className="text-sm text-white/80 leading-relaxed">{displayedFindings.find((f) => f.agentId === hoveredNode)?.hypothesis}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-mist/50 font-semibold tracking-widest mb-1">Evidence</p>
+                            <p className="text-xs text-mist/70 font-mono bg-black/40 p-2 rounded-lg break-all">{displayedFindings.find((f) => f.agentId === hoveredNode)?.evidence}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).length > 0 && (
+                    <div className="space-y-3">
+                      <div className="px-3 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Appealed Challenges</div>
+                      {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).map((c) => (
+                          <div key={c.challengeId} className="bg-orange-500/5 p-4 rounded-xl space-y-2 border border-orange-500/10">
+                              <p className="text-xs text-orange-400/80 font-mono">From: {c.challengerAgentId}</p>
+                              <p className="text-sm text-white/80 leading-relaxed">{c.counterHypothesis}</p>
+                          </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {displayedRebuttals[hoveredNode] && (
+                    <div className="space-y-3">
+                      <div className={`px-3 py-1 ${displayedRebuttals[hoveredNode]?.position === 'DEFEND' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'} border rounded-full text-xs font-semibold tracking-wider self-start inline-block`}>
+                          {displayedRebuttals[hoveredNode]?.position} Response
+                      </div>
+                      <div className="bg-white/5 p-4 rounded-xl">
+                          <p className="text-sm text-white/80 leading-relaxed">{displayedRebuttals[hoveredNode]?.rebuttalFactor}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!displayedFindings.find((f) => f.agentId === hoveredNode) && (
+                      <p className="text-mist/50 italic text-sm">Waiting for agent analysis...</p>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      <AnimatePresence>
-        {findings.length > 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-            className="grid gap-1 border-t border-white/5 px-6 py-6 xl:grid-cols-2"
-          >
-            {findings.map((finding, index) => (
-              <FindingCard key={finding.findingId} finding={finding} index={index} />
-            ))}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {decision ? (
-          <div className="border-t border-white/5 px-6 py-6">
-            <JudgeCard decision={decision} />
-          </div>
-        ) : null}
-      </AnimatePresence>
-    </section>
+    </div>
   );
 }

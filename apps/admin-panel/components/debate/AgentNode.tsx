@@ -1,6 +1,6 @@
 'use client'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { type AgentId, type AgentStatus } from './debate.types'
 
 export type AgentNodeData = {
@@ -12,102 +12,91 @@ export type AgentNodeData = {
 }
 
 const STATUS_RING: Record<AgentStatus, string> = {
-  idle:          'border-zinc-300 dark:border-zinc-600',
-  analyzing:     'border-blue-400 animate-pulse',
-  finding_ready: 'border-green-400',
-  challenging:   'border-amber-400',
-  defending:     'border-blue-500',
-  conceding:     'border-red-400',
-  judging:       'border-yellow-400 animate-pulse',
+  idle:          'border-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05)]',
+  analyzing:     'border-[#3b82f6]/50 shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]',
+  finding_ready: 'border-[#10b981]/50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)]',
+  challenging:   'border-[#f59e0b]/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.3)]',
+  defending:     'border-[#6366f1]/50 shadow-[0_0_15px_-3px_rgba(99,102,241,0.3)]',
+  conceding:     'border-[#ef4444]/50 shadow-[0_0_15px_-3px_rgba(239,68,68,0.3)]',
+  judging:       'border-[#a855f7]/50 shadow-[0_0_20px_-3px_rgba(168,85,247,0.4)]',
 }
 
 const STATUS_BG: Record<AgentStatus, string> = {
-  idle:          'bg-zinc-50 dark:bg-zinc-800',
-  analyzing:     'bg-blue-50 dark:bg-blue-950',
-  finding_ready: 'bg-green-50 dark:bg-green-950',
-  challenging:   'bg-amber-50 dark:bg-amber-950',
-  defending:     'bg-blue-50 dark:bg-blue-950',
-  conceding:     'bg-red-50 dark:bg-red-950',
-  judging:       'bg-yellow-50 dark:bg-yellow-950',
+  idle:          'bg-[#0f1115]',
+  analyzing:     'bg-[#0f172a]',
+  finding_ready: 'bg-[#0f1f18]',
+  challenging:   'bg-[#1f160e]',
+  defending:     'bg-[#121029]',
+  conceding:     'bg-[#211111]',
+  judging:       'bg-[#1b1126]',
 }
 
-const STATUS_DOT: Record<AgentStatus, string> = {
-  idle:          'bg-zinc-400',
-  analyzing:     'bg-blue-400 animate-ping',
-  finding_ready: 'bg-green-400',
-  challenging:   'bg-amber-400',
-  defending:     'bg-blue-500',
-  conceding:     'bg-red-400',
-  judging:       'bg-yellow-400 animate-ping',
+const STATUS_TEXT: Record<AgentStatus, string> = {
+  idle:          'text-white/50',
+  analyzing:     'text-blue-400',
+  finding_ready: 'text-green-400',
+  challenging:   'text-amber-400',
+  defending:     'text-indigo-400',
+  conceding:     'text-red-400',
+  judging:       'text-fuchsia-400',
 }
 
-const AGENT_ICON: Record<AgentId, string> = {
-  build_analyzer:      '🔨',
-  code_reviewer:       '🔍',
-  test_analyzer:       '🧪',
-  dependency_checker:  '📦',
-  judge:               '⚖',
+const ICONS: Record<AgentId, string> = {
+  build_analyzer: '🔧',
+  code_reviewer: '🔎',
+  test_analyzer: '🧪',
+  dependency_checker: '📦',
+  judge: '⚖️',
 }
 
 export function AgentNode({ data }: NodeProps) {
-  const agentId = data.agentId as AgentId;
-  const label = data.label as string;
-  const status = (data.status as AgentStatus) || 'idle';
-  const confidence = data.confidence as number | undefined;
-  const rebuttalPosition = data.rebuttalPosition as 'DEFEND' | 'CONCEDE' | undefined;
-
+  const { agentId, label, status, confidence, rebuttalPosition } = data as AgentNodeData
+  const Icon = ICONS[agentId]
+  const pulse = status === 'analyzing' || status === 'judging' || status === 'challenging'
+  
   return (
-    <motion.div 
-      className={`relative rounded-xl border-2 p-3 w-48 shadow-lg transition-colors ${STATUS_RING[status]} ${STATUS_BG[status]}`}
-      animate={status === 'judging' ? { scale: 1.05 } : { scale: 1 }}
-    >
-      <Handle type="target" position={Position.Top} className="opacity-0" />
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
-      <Handle type="target" position={Position.Left} className="opacity-0" id="left" />
-      <Handle type="source" position={Position.Right} className="opacity-0" id="right" />
+    <div className={`relative px-4 py-3 rounded-2xl border-2 transition-all duration-500 backdrop-blur-md min-w-[200px] ${STATUS_RING[status]} ${STATUS_BG[status]} group hover:shadow-[0_0_25px_-5px_rgba(255,255,255,0.1)] hover:border-white/20`}>
+      <Handle type="target" position={Position.Left} className="w-1 h-3 rounded-full bg-white/20 border-none -ml-1 transition-opacity opacity-0 group-hover:opacity-100" />
+      <Handle type="source" position={Position.Right} className="w-1 h-3 rounded-full bg-white/20 border-none -mr-1 transition-opacity opacity-0 group-hover:opacity-100" />
 
-      {/* Status dot */}
-      <span className={`absolute -right-1 -top-1 block h-3 w-3 rounded-full ${STATUS_DOT[status]}`} />
-
-      {/* Icon + label */}
-      <div className="flex items-center space-x-2 font-medium">
-        <span>{AGENT_ICON[agentId]}</span>
-        <span className="text-sm dark:text-zinc-200">{label}</span>
-      </div>
-
-      {/* Status pill */}
-      <div className="mt-2 text-xs uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-        {status.replace('_', ' ')}
-      </div>
-
-      {/* Confidence bar */}
-      {confidence !== undefined && (
-        <div className="mt-3 flex flex-col space-y-1">
-          <div className="flex justify-between text-[10px] text-zinc-500">
-            <span>confidence</span>
-            <span>{Math.round(confidence * 100)}%</span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-            <motion.div 
-              className="h-full bg-blue-500" 
-              initial={{ width: 0 }}
-              animate={{ width: `${confidence * 100}%` }}
-              transition={{ type: 'spring', bounce: 0.2 }}
-            />
-          </div>
+      <div className="flex items-center gap-3">
+        <div className={`flex items-center justify-center w-8 h-8 rounded-full bg-black/40 border border-white/5 text-sm ${pulse ? 'animate-pulse' : ''} shadow-inner`}>
+            {Icon}
         </div>
-      )}
-
-      {/* Rebuttal badge */}
-      {rebuttalPosition && (
-        <motion.div 
-          initial={{ opacity: 0, y: 5 }} 
-          animate={{ opacity: 1, y: 0 }} 
-          className={`mt-2 rounded-md px-2 py-1 text-[10px] font-bold ${rebuttalPosition === 'DEFEND' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}
-        >
-            {rebuttalPosition}
-        </motion.div>
-      )}
-    </motion.div>
+        <div className="flex flex-col flex-1">
+          <span className="text-[11px] uppercase tracking-widest text-mist/40 font-semibold">{label}</span>
+          <span className={`text-[12px] font-mono tracking-tight capitalize mt-0.5 ${STATUS_TEXT[status]}`}>
+            {status.replace('_', ' ')}
+            {pulse && <motion.span initial={{opacity:0}} animate={{opacity:1}} transition={{repeat: Infinity, duration: 0.8, ease: 'easeInOut', repeatType: 'reverse'}}>...</motion.span>}
+          </span>
+        </div>
+      </div>
+      
+      <AnimatePresence>
+        {confidence !== undefined && (
+          <motion.div initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="mt-3">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[9px] uppercase tracking-widest text-mist/60">Confidence</span>
+              <span className="text-[9px] font-mono text-white/90">{Math.round(confidence * 100)}%</span>
+            </div>
+            <div className="h-1 bg-black/50 rounded-full overflow-hidden w-full backdrop-blur-sm border border-white/5">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${confidence * 100}%` }}
+                className="h-full bg-gradient-to-r from-blue-500/50 to-blue-400 rounded-full"
+              />
+            </div>
+          </motion.div>
+        )}
+        
+        {rebuttalPosition && (
+          <motion.div initial={{opacity:0, y:-5}} animate={{opacity:1, y:0}} className="absolute -top-3 -right-2">
+            <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-full shadow-lg ${rebuttalPosition === 'DEFEND' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
+              {rebuttalPosition}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }

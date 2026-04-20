@@ -9,6 +9,7 @@ import {
   type Edge,
   type Node,
   Position,
+  MarkerType,
 } from '@xyflow/react';
 import { useEffect, useMemo, useCallback } from 'react';
 
@@ -19,14 +20,14 @@ import type { AgentId, AgentStatus, Challenge, Rebuttal } from './debate.types';
 const nodeTypes = { agentNode: AgentNode };
 const edgeTypes = { challengeEdge: ChallengeEdge };
 const PRO_OPTIONS = { hideAttribution: true };
-const DEFAULT_VIEWPORT = { x: -10, y: -10, zoom: 0.9 };
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
 
-const AGENT_CONFIG: { id: AgentId; label: string; x: number; y: number }[] = [
-  { id: 'build_analyzer', label: 'Build Analyzer', x: 30, y: 118 },
-  { id: 'code_reviewer', label: 'Code Reviewer', x: 250, y: 12 },
-  { id: 'test_analyzer', label: 'Test Analyzer', x: 250, y: 224 },
-  { id: 'dependency_checker', label: 'Dependency Checker', x: 500, y: 118 },
-  { id: 'judge', label: 'Judge', x: 780, y: 118 },
+const AGENT_CONFIG: { id: AgentId; label: string; x: number; y: number }[] = [  
+  { id: 'build_analyzer', label: 'Build Analyzer', x: 100, y: 350 },
+  { id: 'code_reviewer', label: 'Code Reviewer', x: 450, y: 150 },
+  { id: 'test_analyzer', label: 'Test Analyzer', x: 450, y: 550 },
+  { id: 'dependency_checker', label: 'Dependency Checker', x: 800, y: 350 },
+  { id: 'judge', label: 'Judge', x: 1200, y: 350 },
 ];
 
 interface Props {
@@ -34,15 +35,16 @@ interface Props {
   confidences: Partial<Record<AgentId, number>>;
   challenges: Challenge[];
   rebuttals: Partial<Record<AgentId, Rebuttal>>;
+  onHoverNode?: (id: AgentId | null) => void;
 }
 
-export function DebateGraph({ statuses, confidences, challenges, rebuttals }: Props) {
+export function DebateGraph({ statuses, confidences, challenges, rebuttals, onHoverNode }: Props) {
   const derivedNodes: Node[] = useMemo(
     () =>
       AGENT_CONFIG.map((a) => ({
         id: a.id,
         type: 'agentNode',
-        draggable: false,
+        draggable: true,
         selectable: true,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -60,25 +62,32 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals }: Pr
 
   const derivedEdges: Edge[] = useMemo(
     () =>
-      challenges.map((challenge) => ({
-        id: challenge.challengeId,
-        source: challenge.challengerAgentId,
-        target: challenge.targetAgentId,
-        type: 'challengeEdge',
-        selectable: false,
-        animated: true,
-        markerEnd: {
-          type: 'arrowclosed',
-          color: rebuttals[challenge.targetAgentId]?.position === 'DEFEND' ? '#3b82f6' : (rebuttals[challenge.targetAgentId] ? '#ef4444' : '#f59e0b'),
-          width: 20,
-          height: 20,
-        },
-        data: {
-          label: rebuttals[challenge.targetAgentId] ? `Round 1 Challenge / Round 2 ${rebuttals[challenge.targetAgentId]!.position}` : 'Round 1 Challenge',
-          resolved: Boolean(rebuttals[challenge.targetAgentId]),
-          position: rebuttals[challenge.targetAgentId]?.position,
-        },
-      })),
+      challenges.map((challenge) => {
+        const rebuttal = rebuttals[challenge.targetAgentId];
+        const isResolved = Boolean(rebuttal);
+        const position = rebuttal?.position;
+        const color = isResolved 
+            ? (position === 'DEFEND' ? '#3b82f6' : '#ef4444') 
+            : '#f59e0b';
+            
+        return {
+            id: challenge.challengeId,
+            source: challenge.challengerAgentId,
+            target: challenge.targetAgentId,
+            type: 'challengeEdge',
+            selectable: false,
+            animated: true,
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: color,
+            },
+            data: {
+                label: isResolved ? `Round 1 Challenge / Round 2 ${position}` : 'Round 1 Challenge',      
+                resolved: isResolved,
+                position: position,
+            },
+        };
+      }),
     [challenges, rebuttals],
   );
 
@@ -91,6 +100,7 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals }: Pr
         const existing = nds.find((n) => n.id === dn.id);
         return {
           ...dn,
+          position: existing ? existing.position : dn.position,
           measured: existing?.measured,
           width: existing?.width,
           height: existing?.height,
@@ -103,41 +113,46 @@ export function DebateGraph({ statuses, confidences, challenges, rebuttals }: Pr
     setEdges(derivedEdges);
   }, [derivedEdges, setEdges]);
 
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    const el = document.getElementById(`finding-${node.id}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, []);
+  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
+    onHoverNode?.(node.id as AgentId);
+  }, [onHoverNode]);
+
+  const onPaneMouseEnter = useCallback(() => {
+    onHoverNode?.(null);
+  }, [onHoverNode]);
 
   return (
-    <div className="h-[360px] w-full overflow-hidden border-y border-white/5">
+    <div className="h-full w-full bg-[#0A0A0A]">  
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onPaneClick={onPaneMouseEnter}
+        onPaneMouseEnter={onPaneMouseEnter}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultViewport={DEFAULT_VIEWPORT}
-        minZoom={0.9}
-        maxZoom={0.9}
-        panOnDrag={false}
-        zoomOnPinch={false}
-        zoomOnScroll={false}
-        zoomOnDoubleClick={false}
-        nodesDraggable={false}
+        minZoom={0.5}
+        maxZoom={2}
+        panOnDrag={true}
+        zoomOnPinch={true}
+        zoomOnScroll={true}
+        zoomOnDoubleClick={true}
+        nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={true}
         proOptions={PRO_OPTIONS}
         className="bg-transparent"
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
       >
         <Background
-          color="rgba(103, 133, 160, 0.14)"
-          gap={22}
+          color="rgba(103, 133, 160, 0.08)"
+          gap={24}
           variant={BackgroundVariant.Dots}
-          size={1.4}
+          size={1.5}
         />
       </ReactFlow>
     </div>
