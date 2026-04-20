@@ -257,6 +257,7 @@ export function createChatClient(overrides: ChatClientDependencies = {}) {
       ]);
     } catch (error) {
       const normalizedError = toLlmClientError(error, 'groq');
+      console.warn('Groq failed, falling back to Ollama. Groq error:', error);
 
       if (!normalizedError.retryable) {
         throw normalizedError;
