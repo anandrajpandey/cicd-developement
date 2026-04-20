@@ -23,30 +23,29 @@ export default async function DashboardPage() {
           <div>
             <p className="eyebrow">Mission Control</p>
             <h1 className="mt-3 max-w-3xl text-5xl font-semibold tracking-tight text-white">
-              Debate-driven CI triage with a professional desktop command surface.
+              AI-Powered Release Intelligence
             </h1>
             <p className="mt-5 max-w-3xl text-sm leading-7 text-mist/72">
-              Watch specialist agents argue over failures, inspect rebuttals in detail, and move
-              from raw incident logs to precise operator action without leaving the control plane.
+              Accelerate incident resolution, automate pipeline triage, and maintain release velocity without leaving the control plane.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 href="/events/new"
                 className="glow-button rounded-2xl px-5 py-3 text-sm font-semibold"
               >
-                Submit Event
+                Ingest New Flow
               </Link>
               <Link
                 href="/debate"
                 className="ghost-button rounded-2xl border px-5 py-3 text-sm font-semibold"
               >
-                Open Debate Console
+                Investigate Insights
               </Link>
               <Link
                 href="/approvals"
                 className="ghost-button rounded-2xl border px-5 py-3 text-sm font-semibold"
               >
-                Approval Queue
+                Pending Approvals
               </Link>
             </div>
           </div>
@@ -71,11 +70,11 @@ export default async function DashboardPage() {
             <div className="metric-card">
               <div className="flex items-center gap-3">
                 <ShieldAlert className="h-5 w-5 text-mint" />
-                <span className="text-sm text-mist/70">ADK-backed Decisions</span>
+                <span className="text-sm text-mist/70">AI-Assisted Resolutions</span>
               </div>
               <div className="mt-4 text-4xl font-semibold text-white">{summary.adkDominant}</div>
               <div className="mt-3 text-xs text-mist/60">
-                {summary.fallbackTouched} decisions touched fallback logic
+                {summary.fallbackTouched} incidents handled cleanly
               </div>
             </div>
             <div className="metric-card">
@@ -98,8 +97,8 @@ export default async function DashboardPage() {
 
       <section className="panel animated-panel p-6">
         <div>
-          <p className="eyebrow">Recent Decisions</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline outcomes</h2>
+          <p className="eyebrow">Recent Activity</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline decisions</h2>
         </div>
 
         {decisions[0]?.executionMeta ? (
@@ -111,7 +110,7 @@ export default async function DashboardPage() {
         <div className="mt-6 space-y-3">
           {decisions.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-line p-8 text-sm text-mist/60">
-              No decisions yet. Submit a pipeline event to start the debate flow.
+              No resolutions computed yet. Ingest an event to enable autonomous insights.
             </div>
           ) : (
             decisions.slice(0, 8).map((item) => (
@@ -131,10 +130,10 @@ export default async function DashboardPage() {
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <ExecutionPathStrip meta={item.executionMeta} compact />
                     <span className="text-xs uppercase tracking-[0.16em] text-mist/50">
-                      {Math.round(getAdkCoverage(item.executionMeta).ratio * 100)}% ADK
+                      {Math.round(getAdkCoverage(item.executionMeta).ratio * 100)}% AI CONFIDENCE
                     </span>
                     <span className="text-xs uppercase tracking-[0.16em] text-mist/50">
-                      {Math.round(item.compositeScore * 100)} score
+                      {Math.round(item.compositeScore * 100)} RELIABILITY INDEX
                     </span>
                   </div>
                 </div>

@@ -12,10 +12,10 @@ import { SignOutButton } from './sign-out-button';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Activity },
-  { href: '/debate', label: 'Debate', icon: Binary },
+  { href: '/debate', label: 'AI Insights', icon: Binary },
   { href: '/mitigations', label: 'Auto Mitigations', icon: Zap },
   { href: '/events/new', label: 'Submit Event', icon: Waves },
-  { href: '/testcases', label: 'Risk Injection', icon: Sparkles },
+  { href: '/testcases', label: 'Simulation Hub', icon: Sparkles },
   { href: '/approvals', label: 'Approvals', icon: ShieldCheck },
 ] as const satisfies ReadonlyArray<{ href: Route; label: string; icon: typeof Activity }>;
 
@@ -34,16 +34,16 @@ export function Shell({ children }: PropsWithChildren) {
                   Release Intelligence
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-mist/70">
-                  Debate-first control plane for failure triage, rebuttal review, and high-signal
-                  operator decisions.
+                  AI-driven control plane for incident triage, deep code-level insights, and
+                  confident operator decisions.
                 </p>
                 <div className="mt-5 rounded-2xl border border-[rgba(93,255,178,0.12)] bg-[rgba(8,24,32,0.82)] p-4 soft-glow-ring">
                   <div className="flex items-center gap-2 text-sm font-medium text-white">
                     <Sparkles className="h-4 w-4 text-mint" />
-                    ADK debate path armed
+                    Autonomous insights active
                   </div>
                   <p className="mt-2 text-xs uppercase tracking-[0.18em] text-mist/55">
-                    Four-stage orchestration
+                    Multi-Agent Orchestration
                   </p>
                 </div>
               </div>
@@ -84,7 +84,7 @@ export function Shell({ children }: PropsWithChildren) {
               </div>
               <p className="mb-3">admin@local.dev</p>
               <p>
-                Desktop-first monitoring surface with full-viewport debate playback and approval
+                Advanced AI monitoring capabilities with comprehensive failure insights and resolution 
                 controls.
               </p>
             </div>
