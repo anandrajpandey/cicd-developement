@@ -35,7 +35,7 @@ import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.j
 
 const PRIMARY_MODEL = 'groq/llama-3.1-8b-instant';
 const FALLBACK_MODEL = 'ollama/mistral:7b';
-const ADK_EXECUTION_TIMEOUT_MS = 10_000;
+const ADK_EXECUTION_TIMEOUT_MS = 60_000; // Increased to 60s for local LLM inference
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
   evidence: true,
