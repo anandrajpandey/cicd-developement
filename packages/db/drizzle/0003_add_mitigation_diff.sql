@@ -1,1 +1,0 @@
-ALTER TABLE "approvals" ADD COLUMN "mitigation_diff" text;

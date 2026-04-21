@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1763539200000,
-      "tag": "0000_initial_schema",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1763625600000,
-      "tag": "0001_users",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1763712000000,
-      "tag": "0002_decision_execution_meta",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1776680114504,
-      "tag": "0003_futuristic_marvel_apes",
+      "when": 1776756908874,
+      "tag": "0000_tough_killer_shrike",
       "breakpoints": true
     }
   ]
