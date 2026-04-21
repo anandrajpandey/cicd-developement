@@ -44,7 +44,7 @@ const baseFindings: AgentFinding[] = [
   },
 ];
 
-test('calculateCompositeScore uses domain weights and rebuttal factors', () => {
+test('calculateCompositeScore uses maximum effective confidence', () => {
   const challenges: Challenge[] = [
     {
       challengeId: 'c1',
@@ -68,7 +68,7 @@ test('calculateCompositeScore uses domain weights and rebuttal factors', () => {
   ];
 
   const score = calculateCompositeScore(baseFindings, challenges, rebuttals);
-  assert.equal(Number(score.toFixed(4)), 0.6775);
+  assert.equal(Number(score.toFixed(4)), 0.9);
 });
 
 test('classifyRiskTier respects low, medium, and high thresholds', () => {

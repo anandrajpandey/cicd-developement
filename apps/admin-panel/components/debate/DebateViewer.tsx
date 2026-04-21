@@ -360,7 +360,7 @@ export function DebateViewer({
     <div className="fixed inset-0 z-[100] bg-[#0A0A0A] overflow-hidden flex flex-col font-sans">
       <div className="flex-none p-4 flex items-center justify-between bg-[#0F1218]">
         <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-white tracking-widest uppercase">X-Ray Trace</h1>
+            <h1 className="text-xl font-bold text-white tracking-widest uppercase">Agentic Trace</h1>
             <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
         </div>
         <div className="flex bg-white/5 rounded-lg p-1 gap-1">

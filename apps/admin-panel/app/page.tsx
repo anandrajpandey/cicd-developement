@@ -1,9 +1,8 @@
 import Link from 'next/link';
 
-import { ArrowRight, Flame, ShieldAlert, Waves } from 'lucide-react';
+import { ArrowRight, Flame, ShieldAlert, Waves, Github } from 'lucide-react';
 
 import { ExecutionPathStrip, getAdkCoverage } from '../components/execution-path-strip';
-import { ExecutionStatusCard } from '../components/execution-status-card';
 import { LiveCommitBanner } from '../components/live-commit-banner';
 import { RiskBadge } from '../components/risk-badge';
 import { getTrpcCaller } from '../lib/trpc/server';
@@ -21,7 +20,7 @@ export default async function DashboardPage() {
       <section className="panel animated-panel overflow-hidden p-8">
         <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <div>
-            <p className="eyebrow">Mission Control</p>
+            <p className="eyebrow">System Overview</p>
             <h1 className="mt-3 max-w-3xl text-5xl font-semibold tracking-tight text-white">
               AI-Powered Release Intelligence
             </h1>
@@ -47,6 +46,25 @@ export default async function DashboardPage() {
               >
                 Pending Approvals
               </Link>
+            </div>
+
+            <div className="mt-8 flex items-center justify-between rounded-2xl border border-[rgba(98,129,156,0.18)] bg-black/40 p-4 w-fit min-w-[340px]">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
+                  <Github className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white/90">Connected Repository</p>
+                  <p className="text-xs font-mono text-mist/70 tracking-wider">agentic-cicd/dash</p>
+                </div>
+              </div>
+              <div className="ml-8 flex items-center gap-2 rounded-full bg-mint/10 px-3 py-1 text-xs font-semibold text-mint">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75"></span>
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-mint"></span>
+                </span>
+                Active
+              </div>
             </div>
           </div>
 
@@ -100,12 +118,6 @@ export default async function DashboardPage() {
           <p className="eyebrow">Recent Activity</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Latest pipeline decisions</h2>
         </div>
-
-        {decisions[0]?.executionMeta ? (
-          <div className="mt-6">
-            <ExecutionStatusCard meta={decisions[0].executionMeta} />
-          </div>
-        ) : null}
 
         <div className="mt-6 space-y-3">
           {decisions.length === 0 ? (

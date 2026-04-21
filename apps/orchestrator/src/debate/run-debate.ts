@@ -331,13 +331,15 @@ export function calculateCompositeScore(
 ): number {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
 
-  const numerator = finalizedFindings.reduce((total, finding) => {
-    const weight = domainWeights[finding.agentId];
-    return total + finding.effectiveConfidence * weight * finding.rebuttalFactor;
-  }, 0);
+  let maxScore = 0;
+  for (const finding of finalizedFindings) {
+    const score = finding.effectiveConfidence * finding.rebuttalFactor;
+    if (score > maxScore) {
+      maxScore = score;
+    }
+  }
 
-  const denominator = Object.values(domainWeights).reduce((sum, weight) => sum + weight, 0);
-  return denominator === 0 ? 0 : numerator / denominator;
+  return maxScore;
 }
 
 async function synthesizeDecision(

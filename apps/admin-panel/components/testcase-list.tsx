@@ -47,7 +47,7 @@ Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)`
     title: 'High Risk: Critical Dependency Security Exploit / Missing Root Module',
     description: 'A severe CVE vulnerability or missing critical dependency causing a catastrophic build failure.',
     tier: 'HIGH',
-    failureType: 'build_failure',
+    failureType: 'integration_test_failure',
     errorLog: `Error: Critical Vulnerability Detected!
 [CVE-2026-99123] Arbitrary Code Execution via compromised package 'express-core'
 Severity: CRITICAL
@@ -55,7 +55,12 @@ Severity: CRITICAL
 Build aggressively halted by security gate.
 
 FATAL ERROR: In addition, Webpack failed to resolve module 'root-crypto-engine'.
-Module not found: Error: Can't resolve 'root-crypto-engine' in '/src/auth'`,
+Module not found: Error: Can't resolve 'root-crypto-engine' in '/src/auth'
+
+FAIL  src/tests/billing-cycle.test.ts
+  ✖ integration test failed to start due to missing crypto engine
+
+Lint Error: legacy_invoices table is deprecated and missing.`,
     color: 'border-red-500/20 bg-red-500/10 text-red-400',
     hover: 'hover:bg-red-500/20'
   }

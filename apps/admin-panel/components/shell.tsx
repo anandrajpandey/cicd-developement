@@ -25,68 +25,47 @@ export function Shell({ children }: PropsWithChildren) {
   return (
     <div className="glass-grid h-screen min-h-screen overflow-hidden">
       <div className="grid h-screen grid-cols-[296px_minmax(0,1fr)]">
-        <aside className="border-r border-white/5 bg-[linear-gradient(180deg,rgba(5,14,24,0.98),rgba(6,17,28,0.98))] px-5 py-6">
-          <div className="panel flex h-full flex-col justify-between p-5">
-            <div className="space-y-8">
-              <div>
-                <p className="eyebrow">Agentic CI/CD</p>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-                  Release Intelligence
-                </h1>
-                <p className="mt-3 text-sm leading-6 text-mist/70">
-                  AI-driven control plane for incident triage, deep code-level insights, and
-                  confident operator decisions.
-                </p>
-                <div className="mt-5 rounded-2xl border border-[rgba(93,255,178,0.12)] bg-[rgba(8,24,32,0.82)] p-4 soft-glow-ring">
-                  <div className="flex items-center gap-2 text-sm font-medium text-white">
-                    <Sparkles className="h-4 w-4 text-mint" />
-                    Autonomous insights active
-                  </div>
-                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-mist/55">
-                    Multi-Agent Orchestration
-                  </p>
-                </div>
-              </div>
-
-              <nav className="space-y-2">
-                {navItems.map(({ href, label, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      'group flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm transition',
-                      pathname === href
-                        ? 'border-[rgba(93,255,178,0.22)] bg-[rgba(10,35,30,0.78)] text-white soft-glow-ring'
-                        : 'border-transparent text-mist/72 hover:border-[rgba(93,255,178,0.12)] hover:bg-white/5 hover:text-white',
-                    )}
-                  >
-                    <Icon
-                      className={cn(
-                        'h-4 w-4',
-                        pathname === href
-                          ? 'text-mint'
-                          : 'text-[rgba(125,189,232,0.76)] group-hover:text-mint',
-                      )}
-                    />
-                    <span className="font-medium">{label}</span>
-                  </Link>
-                ))}
-              </nav>
+<aside className="border-r border-white/10 bg-black/60 shadow-[inset_-1px_0_0_rgba(255,255,255,0.05),0_0_40px_rgba(0,0,0,0.8)] backdrop-blur-2xl flex h-full flex-col justify-between py-8 px-6">
+          <div className="space-y-10">
+            <div className="px-2">
+              <h1 className="text-2xl font-light tracking-[0.25em] text-white/90 uppercase font-mono">
+                Agentic CI/CD
+              </h1>
             </div>
 
-            <div className="rounded-3xl border border-[rgba(98,129,156,0.18)] bg-[rgba(7,18,30,0.82)] p-4 text-sm text-mist/75">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-white">
-                  <ClipboardList className="h-4 w-4 text-mint" />
-                  <span className="font-medium">Operator Session</span>
-                </div>
-                <SignOutButton />
+            <nav className="space-y-2">
+              {navItems.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    'group flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-sm transition',
+                    pathname === href
+                      ? 'border-[rgba(93,255,178,0.22)] bg-[rgba(10,35,30,0.78)] text-white soft-glow-ring'
+                      : 'border-transparent text-mist/72 hover:border-[rgba(93,255,178,0.12)] hover:bg-white/5 hover:text-white',
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      'h-4 w-4',
+                      pathname === href
+                        ? 'text-mint'
+                        : 'text-[rgba(125,189,232,0.76)] group-hover:text-mint',
+                    )}
+                  />
+                  <span className="font-medium">{label}</span>
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="rounded-3xl border border-[rgba(98,129,156,0.18)] bg-[rgba(0,0,0,0.4)] p-4 text-sm text-mist/75">
+            <div className="flex items-center justify-between gap-1">
+              <div className="flex items-center gap-2 text-white min-w-0">
+                <ClipboardList className="h-4 w-4 shrink-0 text-mint" />
+                <span className="font-medium truncate">Operator</span>
               </div>
-              <p className="mb-3">admin@local.dev</p>
-              <p>
-                Advanced AI monitoring capabilities with comprehensive failure insights and resolution 
-                controls.
-              </p>
+              <SignOutButton />
             </div>
           </div>
         </aside>
