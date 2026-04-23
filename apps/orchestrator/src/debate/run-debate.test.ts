@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 
 import type { AgentFinding, Challenge, PipelineEvent, Rebuttal } from '@agentic-cicd/shared-types';
 
-import { calculateCompositeScore, calibrateCompositeScore, classifyRiskTier } from './run-debate.js';
+import {
+  calculateCompositeScore,
+  calibrateCompositeScore,
+  calibrateFindingsForEvent,
+  classifyRiskTier,
+} from './run-debate.js';
 
 const baseFindings: AgentFinding[] = [
   {
@@ -89,6 +94,19 @@ test('calibrateCompositeScore keeps critical build incidents unchanged', () => {
   };
 
   assert.equal(Number(calibrateCompositeScore(event, 0.82).toFixed(2)), 0.82);
+});
+
+test('calibrateFindingsForEvent caps off-domain confidence for lint-only events', () => {
+  const event: Pick<PipelineEvent, 'failureType' | 'errorLog'> = {
+    failureType: 'lint_error',
+    errorLog:
+      "ESLint found style issues during validation.\nsrc/components/button.tsx:4:1 error  Multiple spaces found before 'import'  no-multi-spaces",
+  };
+
+  const calibrated = calibrateFindingsForEvent(event, baseFindings);
+
+  assert.equal(calibrated.find((finding) => finding.agentId === 'test_analyzer')?.confidence, 0.18);
+  assert.equal(calibrated.find((finding) => finding.agentId === 'dependency_checker')?.confidence, 0.12);
 });
 
 test('classifyRiskTier respects low, medium, and high thresholds', () => {
