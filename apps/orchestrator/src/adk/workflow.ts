@@ -428,6 +428,55 @@ function extractJsonObject(input: string): string {
   return input.slice(startIndex, endIndex + 1);
 }
 
+function escapeControlCharactersInJson(input: string): string {
+  let result = '';
+  let inString = false;
+  let escaping = false;
+
+  for (const char of input) {
+    if (escaping) {
+      result += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      result += char;
+      escaping = true;
+      continue;
+    }
+
+    if (char === '"') {
+      result += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      if (char === '\n') {
+        result += '\\n';
+        continue;
+      }
+      if (char === '\r') {
+        result += '\\r';
+        continue;
+      }
+      if (char === '\t') {
+        result += '\\t';
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseJsonLenient(input: string): unknown {
+  return JSON.parse(escapeControlCharactersInJson(extractJsonObject(input)));
+}
+
 function clampConfidence(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
@@ -485,7 +534,7 @@ function parseAdkFinding(
   }
 
   try {
-    const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+    const parsed = parseJsonLenient(rawPayload);
     const finding = findingPayloadSchema.parse(parsed);
 
     return {
@@ -761,7 +810,7 @@ export async function executeAdkJudge(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseJsonLenient(rawPayload);
       const judgeDecision = judgePayloadSchema.parse(parsed);
 
       return {
@@ -832,7 +881,7 @@ export async function executeAdkChallenge(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseJsonLenient(rawPayload);
       const challenge = challengePayloadSchema.parse(parsed);
 
       return {
@@ -899,7 +948,7 @@ export async function executeAdkRebuttal(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseJsonLenient(rawPayload);
       const rebuttal = rebuttalPayloadSchema.parse(parsed);
 
       return {
@@ -943,7 +992,6 @@ export function getAdkWorkflowSummary() {
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };
 }
-
 
 
 

@@ -30,6 +30,30 @@ export interface DecisionListItem {
   branch: string;
 }
 
+export type WorkflowStatus = 'STARTED' | 'ANALYZING' | 'CHALLENGING' | 'REBUTTING' | 'JUDGED';
+
+export interface WorkflowListItem {
+  eventId: string;
+  repository: string;
+  branch: string;
+  commitSha: string;
+  failureType: string;
+  status: WorkflowStatus;
+  createdAt: string;
+  timestamps: {
+    startedAt: string;
+    round0At: string | null;
+    round1At: string | null;
+    round2At: string | null;
+    round3At: string | null;
+  };
+  decision: {
+    decisionId: string;
+    riskTier: RiskTier;
+    compositeScore: number;
+  } | null;
+}
+
 export interface DecisionDetail {
   decision: {
     decisionId: string;
@@ -133,6 +157,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function listDecisions(): Promise<DecisionListItem[]> {
   try {
     return await requestJson<DecisionListItem[]>('/api/decisions');
+  } catch {
+    return [];
+  }
+}
+
+export async function listWorkflows(): Promise<WorkflowListItem[]> {
+  try {
+    return await requestJson<WorkflowListItem[]>('/api/workflows');
   } catch {
     return [];
   }

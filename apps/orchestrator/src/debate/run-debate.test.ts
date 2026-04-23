@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AgentFinding, Challenge, Rebuttal } from '@agentic-cicd/shared-types';
+import type { AgentFinding, Challenge, PipelineEvent, Rebuttal } from '@agentic-cicd/shared-types';
 
-import { calculateCompositeScore, classifyRiskTier } from './run-debate.js';
+import { calculateCompositeScore, calibrateCompositeScore, classifyRiskTier } from './run-debate.js';
 
 const baseFindings: AgentFinding[] = [
   {
@@ -44,7 +44,7 @@ const baseFindings: AgentFinding[] = [
   },
 ];
 
-test('calculateCompositeScore uses maximum effective confidence', () => {
+test('calculateCompositeScore uses weighted effective confidence across domains', () => {
   const challenges: Challenge[] = [
     {
       challengeId: 'c1',
@@ -68,7 +68,27 @@ test('calculateCompositeScore uses maximum effective confidence', () => {
   ];
 
   const score = calculateCompositeScore(baseFindings, challenges, rebuttals);
-  assert.equal(Number(score.toFixed(4)), 0.9);
+  assert.equal(Number(score.toFixed(4)), 0.6350);
+});
+
+test('calibrateCompositeScore downshifts lint-only incidents', () => {
+  const event: Pick<PipelineEvent, 'failureType' | 'errorLog'> = {
+    failureType: 'lint_error',
+    errorLog:
+      "ESLint found style issues during validation.\nsrc/components/button.tsx:4:1 error  Multiple spaces found before 'import'  no-multi-spaces",
+  };
+
+  assert.equal(Number(calibrateCompositeScore(event, 0.53).toFixed(4)), 0.2915);
+});
+
+test('calibrateCompositeScore keeps critical build incidents unchanged', () => {
+  const event: Pick<PipelineEvent, 'failureType' | 'errorLog'> = {
+    failureType: 'build_failure',
+    errorLog:
+      "Critical vulnerability detected.\nModule not found: Can't resolve 'root-crypto-engine'",
+  };
+
+  assert.equal(Number(calibrateCompositeScore(event, 0.82).toFixed(2)), 0.82);
 });
 
 test('classifyRiskTier respects low, medium, and high thresholds', () => {

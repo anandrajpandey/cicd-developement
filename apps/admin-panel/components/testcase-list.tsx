@@ -1,77 +1,96 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { startTransition, useState } from 'react';
+
 import { trpcClient } from '../lib/trpc/client';
 
 const SCENARIOS = [
   {
     id: 'risk-low',
     title: 'Low Risk: Formatting / Linter Error',
-    description: 'A benign Prettier or ESLint style warning. Unlikely to cause production outages.',
+    description:
+      'A benign ESLint and formatting failure with clear file references and no production impact.',
     tier: 'LOW',
     failureType: 'lint_error',
-    errorLog: `Warning: Multiple spaces found before 'import' declaration. (no-multi-spaces)
-  at src/components/button.tsx:4:1
-Warning: Missing trailing comma. (comma-dangle)
-  at src/utils/format.ts:12:15
-Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)`,
+    errorLog: `ESLint found style issues during validation.
+
+src/components/button.tsx:4:1
+  error  Multiple spaces found before 'import'  no-multi-spaces
+
+src/utils/format.ts:12:15
+  error  Missing trailing comma  comma-dangle
+
+src/hooks/useNavigation.ts:27:5
+  warning  React Hook useEffect has a missing dependency: 'router'  react-hooks/exhaustive-deps
+
+Command failed with exit code 1.`,
     color: 'border-green-500/20 bg-green-500/10 text-green-400',
-    hover: 'hover:bg-green-500/20'
+    hover: 'hover:bg-green-500/20',
   },
   {
     id: 'risk-medium',
     title: 'Medium Risk: Failing Unit Test',
-    description: 'A localized unit test failure on a non-critical utility module preventing a passing CI.',
+    description:
+      'A localized unit-test regression with a concrete assertion mismatch and file-level evidence.',
     tier: 'MEDIUM',
     failureType: 'test_failure',
-    errorLog: `FAIL  src/__tests__/mathUtils.test.ts
-  ✕ calculates compound interest correctly (15 ms)
+    errorLog: `FAIL src/__tests__/mathUtils.test.ts
+  x calculates compound interest correctly (15 ms)
 
-  â—  calculates compound interest correctly
+  ● calculates compound interest correctly
 
-    expect(received).toBe(expected) // Object.is equality
+    expect(received).toBe(expected)
 
     Expected: 105.00
     Received: 100.50
 
-      22 |   it('calculates compound interest correctly', () => {
-      23 |     const result = calculateInterest(100, 0.05, 1);
-    > 24 |     expect(result).toBe(105.00);
-         |                    ^`,
+      22 | it('calculates compound interest correctly', () => {
+      23 |   const result = calculateInterest(100, 0.05, 1);
+    > 24 |   expect(result).toBe(105.00);
+         |                  ^
+      25 | });
+
+Test Suites: 1 failed, 4 passed
+Tests:       1 failed, 19 passed`,
     color: 'border-orange-500/20 bg-orange-500/10 text-orange-400',
-    hover: 'hover:bg-orange-500/20'
+    hover: 'hover:bg-orange-500/20',
   },
   {
     id: 'risk-high',
-    title: 'High Risk: Critical Dependency Security Exploit / Missing Root Module',
-    description: 'A severe CVE vulnerability or missing critical dependency causing a catastrophic build failure.',
+    title: 'High Risk: Critical Dependency / Missing Root Module',
+    description:
+      'A critical dependency security alert plus a missing root module causing an immediate build stop.',
     tier: 'HIGH',
-    failureType: 'integration_test_failure',
+    failureType: 'build_failure',
     errorLog: `Error: Critical Vulnerability Detected!
 [CVE-2026-99123] Arbitrary Code Execution via compromised package 'express-core'
 Severity: CRITICAL
   --> Found in package.json dependencies lock
 Build aggressively halted by security gate.
 
-FATAL ERROR: In addition, Webpack failed to resolve module 'root-crypto-engine'.
+FATAL ERROR: Webpack failed to resolve module 'root-crypto-engine'.
 Module not found: Error: Can't resolve 'root-crypto-engine' in '/src/auth'
+Import trace:
+./src/auth/secure-session.ts
+./src/app/api/billing/route.ts
 
-FAIL  src/tests/billing-cycle.test.ts
-  ✖ integration test failed to start due to missing crypto engine
+FAIL src/tests/billing-cycle.test.ts
+  x integration test failed to start due to missing crypto engine
 
 Lint Error: legacy_invoices table is deprecated and missing.`,
     color: 'border-red-500/20 bg-red-500/10 text-red-400',
-    hover: 'hover:bg-red-500/20'
-  }
+    hover: 'hover:bg-red-500/20',
+  },
 ];
 
 export function TestcaseList() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState<string | null>(null);
 
-  async function triggerScenario(scenario: typeof SCENARIOS[0]) {
+  async function triggerScenario(scenario: (typeof SCENARIOS)[number]) {
     setIsSubmitting(scenario.id);
+
     try {
       const payload = {
         eventId: crypto.randomUUID(),
@@ -84,9 +103,12 @@ export function TestcaseList() {
       };
 
       const response = await trpcClient.submitEvent.mutate(payload);
-      router.push(`/events/${response.eventId}`);
-    } catch (err) {
-      console.error('Failed to trigger scenario:', err);
+
+      startTransition(() => {
+        router.push(`/events/${response.eventId}`);
+      });
+    } catch (error) {
+      console.error('Failed to trigger scenario:', error);
       alert('Failed to trigger the test case. See console.');
     } finally {
       setIsSubmitting(null);
@@ -96,34 +118,39 @@ export function TestcaseList() {
   return (
     <div className="grid gap-6 md:grid-cols-3">
       {SCENARIOS.map((scenario) => (
-        <div 
-          key={scenario.id} 
-          className={`flex flex-col p-6 rounded-2xl border ${scenario.color.split(' ')[0]} bg-[#0F1218] transition-all relative overflow-hidden shadow-2xl`}
+        <div
+          key={scenario.id}
+          className={`relative flex flex-col overflow-hidden rounded-2xl border ${scenario.color.split(' ')[0]} bg-[#0F1218] p-6 shadow-2xl transition-all`}
         >
-          <div className={`absolute top-0 left-0 w-full h-1 ${scenario.color.split(' ')[1]}`} />
-          <div className="flex justify-between items-start mb-4">
-            <span className={`text-xs font-black uppercase tracking-widest px-3 py-1 rounded-sm ${scenario.color}`}>
+          <div className={`absolute left-0 top-0 h-1 w-full ${scenario.color.split(' ')[1]}`} />
+          <div className="mb-4 flex justify-between items-start">
+            <span
+              className={`rounded-sm px-3 py-1 text-xs font-black uppercase tracking-widest ${scenario.color}`}
+            >
               {scenario.tier} RISK
             </span>
           </div>
-          
-          <h2 className="text-xl font-bold tracking-wider text-white mb-2">{scenario.title}</h2>
-          <p className="text-mist/70 text-sm leading-relaxed mb-6 flex-1">
-            {scenario.description}
-          </p>
 
-          <div className="bg-black/40 rounded-lg p-4 mb-6 border border-white/5 relative group">
-            <span className="text-[9px] uppercase font-bold tracking-widest text-mist/40 absolute -top-2 left-3 bg-[#0F1218] px-1">Simulated Payload</span>
-            <pre className="text-[10px] text-mist/60 font-mono whitespace-pre-wrap overflow-x-auto max-h-32 scrollbar-thin scrollbar-thumb-white/10">
+          <h2 className="mb-2 text-xl font-bold tracking-wider text-white">{scenario.title}</h2>
+          <p className="mb-6 flex-1 text-sm leading-relaxed text-mist/70">{scenario.description}</p>
+
+          <div className="group relative mb-6 rounded-lg border border-white/5 bg-black/40 p-4">
+            <span className="absolute -top-2 left-3 bg-[#0F1218] px-1 text-[9px] font-bold uppercase tracking-widest text-mist/40">
+              Simulated Payload
+            </span>
+            <pre className="max-h-32 overflow-x-auto whitespace-pre-wrap text-[10px] font-mono text-mist/60">
               {scenario.errorLog}
             </pre>
           </div>
 
           <button
             onClick={() => triggerScenario(scenario)}
-            disabled={!!isSubmitting}
-            className={`w-full py-3 rounded-lg text-sm font-bold uppercase tracking-widest transition-all
-              ${isSubmitting ? 'bg-white/5 text-white/30 cursor-not-allowed' : `${scenario.color.split(' ')[1]} ${scenario.hover} text-white/90 hover:shadow-lg shadow-black`}`}
+            disabled={Boolean(isSubmitting)}
+            className={`w-full rounded-lg py-3 text-sm font-bold uppercase tracking-widest transition-all ${
+              isSubmitting
+                ? 'cursor-not-allowed bg-white/5 text-white/30'
+                : `${scenario.color.split(' ')[1]} ${scenario.hover} text-white/90 shadow-black hover:shadow-lg`
+            }`}
           >
             {isSubmitting === scenario.id ? 'Inducing Risk...' : 'Trigger Debate'}
           </button>

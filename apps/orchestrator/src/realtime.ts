@@ -14,6 +14,7 @@ import { logger } from './logger.js';
 import { initializeRedisSubscriber, publishDebateEvent } from './redis.js';
 
 let io: SocketIOServer | null = null;
+const REALTIME_PUBLISH_TIMEOUT_MS = 1_500;
 
 export interface DebateRealtimePayloads {
   'debate:started': {
@@ -115,7 +116,14 @@ export async function emitDebateEvent<K extends keyof DebateRealtimePayloads>(
   };
 
   try {
-    await publishDebateEvent(JSON.stringify(message));
+    await Promise.race([
+      publishDebateEvent(JSON.stringify(message)),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Realtime publish timed out after ${REALTIME_PUBLISH_TIMEOUT_MS}ms.`));
+        }, REALTIME_PUBLISH_TIMEOUT_MS);
+      }),
+    ]);
   } catch (error) {
     logger.error('Failed to publish debate event to Redis.', {
       error,

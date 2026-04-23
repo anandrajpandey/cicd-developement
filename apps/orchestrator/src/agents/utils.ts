@@ -15,6 +15,8 @@ import {
   rebuttalSchema,
 } from '@agentic-cicd/shared-types';
 
+const FALLBACK_CHAT_MODEL = 'llama-3.1-8b-instant';
+
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
   evidence: true,
@@ -66,6 +68,55 @@ function extractJsonObject(input: string): string {
   }
 
   return input.slice(startIndex, endIndex + 1);
+}
+
+function escapeControlCharactersInJson(input: string): string {
+  let result = '';
+  let inString = false;
+  let escaping = false;
+
+  for (const char of input) {
+    if (escaping) {
+      result += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      result += char;
+      escaping = true;
+      continue;
+    }
+
+    if (char === '"') {
+      result += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      if (char === '\n') {
+        result += '\\n';
+        continue;
+      }
+      if (char === '\r') {
+        result += '\\r';
+        continue;
+      }
+      if (char === '\t') {
+        result += '\\t';
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseJsonLenient(input: string): unknown {
+  return JSON.parse(escapeControlCharactersInJson(extractJsonObject(input)));
 }
 
 function clampConfidence(value: number): number {
@@ -423,15 +474,18 @@ export async function analyzeWithPrompt(
   );
 
   try {
-    const response = await chat([
-      { role: 'system', content: prompt },
-      {
-        role: 'user',
-        content: `Analyze this pipeline event and return only JSON.\n${userMessage}`,
-      },
-    ]);
+    const response = await chat(
+      [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: `Analyze this pipeline event and return only JSON.\n${userMessage}`,
+        },
+      ],
+      FALLBACK_CHAT_MODEL,
+    );
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseJsonLenient(response);
     const finding = findingPayloadSchema.parse(parsed);
 
     return {
@@ -499,19 +553,22 @@ Rules:
   );
 
   try {
-    const response = await chat([
-      { role: 'system', content: prompt },
-      {
-        role: 'user',
-        content: `Evaluate whether a challenge is warranted.\n${userMessage}`,
-      },
-    ]);
+    const response = await chat(
+      [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: `Evaluate whether a challenge is warranted.\n${userMessage}`,
+        },
+      ],
+      FALLBACK_CHAT_MODEL,
+    );
 
     if (response.trim() === 'NO_CHALLENGE') {
       return null;
     }
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseJsonLenient(response);
     const challenge = challengePayloadSchema.parse(parsed);
 
     if (challenge.targetAgentId === agentId || challenge.evidence.length === 0) {
@@ -603,15 +660,18 @@ Rules:
   );
 
   try {
-    const response = await chat([
-      { role: 'system', content: prompt },
-      {
-        role: 'user',
-        content: `Respond to this challenge.\n${userMessage}`,
-      },
-    ]);
+    const response = await chat(
+      [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: `Respond to this challenge.\n${userMessage}`,
+        },
+      ],
+      FALLBACK_CHAT_MODEL,
+    );
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseJsonLenient(response);
     const rebuttal = rebuttalPayloadSchema.parse(parsed);
 
     return {

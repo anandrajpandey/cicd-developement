@@ -11,6 +11,7 @@
   --line-soft: rgba(105, 138, 166, 0.18);
   --text-primary: #edf7ff;
   --text-muted: rgba(215, 234, 250, 0.72);
+  --font-robotic: "OCR A Extended", "Bahnschrift SemiBold", "Bahnschrift", "Rajdhani", "Eurostile", "Segoe UI", sans-serif;
 }
 
 html {
@@ -24,6 +25,9 @@ body {
   overflow: hidden;
   color: var(--text-primary);
   background: linear-gradient(180deg, #0f1c2d 0%, #06111b 48%, #071524 100%);
+  font-family: var(--font-robotic);
+  letter-spacing: 0.018em;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
 * {
@@ -56,6 +60,21 @@ button {
 .eyebrow {
   @apply text-[10px] uppercase tracking-[0.34em];
   color: rgba(151, 221, 255, 0.72);
+  font-family: var(--font-robotic);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.metric-card,
+.badge,
+.glow-button,
+.ghost-button {
+  font-family: var(--font-robotic);
+  letter-spacing: 0.04em;
 }
 
 .metric-card {

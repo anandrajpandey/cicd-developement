@@ -35,6 +35,8 @@ import {
   getAdkWorkflowSummary,
 } from '../adk/workflow.js';
 
+const FALLBACK_JUDGE_MODEL = 'llama-3.1-8b-instant';
+
 const analysisAgents = [
   buildAnalyzerAgent,
   codeReviewerAgent,
@@ -324,22 +326,138 @@ function getFinalizedFindings(
   });
 }
 
+export function calibrateFindingsForEvent(
+  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
+  findings: AgentFinding[],
+): AgentFinding[] {
+  const errorLog = event.errorLog.toLowerCase();
+  const hasLintOnlySignal =
+    event.failureType === 'lint_error' ||
+    errorLog.includes('eslint') ||
+    errorLog.includes('prettier') ||
+    errorLog.includes('comma-dangle') ||
+    errorLog.includes('no-multi-spaces') ||
+    errorLog.includes('react-hooks/exhaustive-deps');
+  const hasDeterministicTestSignal =
+    errorLog.includes('expected:') ||
+    errorLog.includes('received:') ||
+    errorLog.includes('test suites:') ||
+    errorLog.includes('tests:');
+  const hasCriticalBuildOrSecuritySignal =
+    errorLog.includes('critical') ||
+    errorLog.includes('vulnerability') ||
+    errorLog.includes('cve-') ||
+    errorLog.includes('module not found') ||
+    errorLog.includes("can't resolve") ||
+    errorLog.includes('fatal error') ||
+    errorLog.includes('security gate');
+
+  return findings.map((finding) => {
+    if (hasLintOnlySignal && !hasCriticalBuildOrSecuritySignal) {
+      if (finding.agentId === 'test_analyzer') {
+        return {
+          ...finding,
+          confidence: Math.min(finding.confidence, 0.18),
+          hypothesis: 'This event is a lint-only pipeline failure, so test risk is secondary.',
+        };
+      }
+
+      if (finding.agentId === 'dependency_checker') {
+        return {
+          ...finding,
+          confidence: Math.min(finding.confidence, 0.12),
+          hypothesis: 'No dependency-level signal is evident in this lint-only event.',
+        };
+      }
+
+      if (finding.agentId === 'build_analyzer') {
+        return {
+          ...finding,
+          confidence: Math.min(Math.max(finding.confidence, 0.3), 0.45),
+        };
+      }
+    }
+
+    if (event.failureType === 'test_failure' && hasDeterministicTestSignal && !hasCriticalBuildOrSecuritySignal) {
+      if (finding.agentId === 'dependency_checker') {
+        return {
+          ...finding,
+          confidence: Math.min(finding.confidence, 0.15),
+          hypothesis: 'No dependency fault is strongly evidenced in this isolated unit-test failure.',
+        };
+      }
+
+      if (finding.agentId === 'build_analyzer') {
+        return {
+          ...finding,
+          confidence: Math.min(finding.confidence, 0.3),
+          hypothesis: 'Build infrastructure appears healthy enough to execute the failing test.',
+        };
+      }
+    }
+
+    return finding;
+  });
+}
+
 export function calculateCompositeScore(
   findings: AgentFinding[],
   foundChallenges: Challenge[],
   foundRebuttals: Rebuttal[],
 ): number {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
+  let weightedScoreSum = 0;
+  let weightSum = 0;
 
-  let maxScore = 0;
   for (const finding of finalizedFindings) {
+    const domainWeight = domainWeights[finding.agentId] ?? 0;
     const score = finding.effectiveConfidence * finding.rebuttalFactor;
-    if (score > maxScore) {
-      maxScore = score;
-    }
+    weightedScoreSum += score * domainWeight;
+    weightSum += domainWeight;
   }
 
-  return maxScore;
+  if (weightSum === 0) {
+    return 0;
+  }
+
+  return weightedScoreSum / weightSum;
+}
+
+export function calibrateCompositeScore(
+  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
+  compositeScore: number,
+): number {
+  const errorLog = event.errorLog.toLowerCase();
+  const hasCriticalBuildOrSecuritySignal =
+    errorLog.includes('critical') ||
+    errorLog.includes('vulnerability') ||
+    errorLog.includes('cve-') ||
+    errorLog.includes('module not found') ||
+    errorLog.includes("can't resolve") ||
+    errorLog.includes('fatal error') ||
+    errorLog.includes('security gate');
+  const hasDeterministicTestSignal =
+    errorLog.includes('expected:') ||
+    errorLog.includes('received:') ||
+    errorLog.includes('test suites:') ||
+    errorLog.includes('tests:');
+  const hasLintOnlySignal =
+    event.failureType === 'lint_error' ||
+    errorLog.includes('eslint') ||
+    errorLog.includes('prettier') ||
+    errorLog.includes('comma-dangle') ||
+    errorLog.includes('no-multi-spaces') ||
+    errorLog.includes('react-hooks/exhaustive-deps');
+
+  if (hasLintOnlySignal && !hasCriticalBuildOrSecuritySignal && !hasDeterministicTestSignal) {
+    return Math.max(0, Math.min(1, compositeScore * 0.55));
+  }
+
+  if (event.failureType === 'test_failure' && hasDeterministicTestSignal && !hasCriticalBuildOrSecuritySignal) {
+    return Math.max(0, Math.min(1, compositeScore * 0.78));
+  }
+
+  return Math.max(0, Math.min(1, compositeScore));
 }
 
 async function synthesizeDecision(
@@ -377,23 +495,26 @@ async function synthesizeDecision(
   });
 
   try {
-    const response = await chat([
-      { role: 'system', content: judgePrompt },
-      {
-        role: 'user',
-        content: JSON.stringify(
-          {
-            event,
-            findings: finalizedFindings,
-            rebuttals: foundRebuttals,
-            compositeScore,
-            riskTier,
-          },
-          null,
-          2,
-        ),
-      },
-    ]);
+    const response = await chat(
+      [
+        { role: 'system', content: judgePrompt },
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              event,
+              findings: finalizedFindings,
+              rebuttals: foundRebuttals,
+              compositeScore,
+              riskTier,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      FALLBACK_JUDGE_MODEL,
+    );
 
     const parsed = JSON.parse(
       response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1),
@@ -751,11 +872,13 @@ export async function runJudgeSynthesis(
   executionMeta: ExecutionMeta,
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Decision>> {
-  const compositeScore = calculateCompositeScore(findings, foundChallenges, foundRebuttals);
+  const calibratedFindings = calibrateFindingsForEvent(event, findings);
+  const rawCompositeScore = calculateCompositeScore(calibratedFindings, foundChallenges, foundRebuttals);
+  const compositeScore = calibrateCompositeScore(event, rawCompositeScore);
   const riskTier = classifyRiskTier(compositeScore);
   const synthesis = await synthesizeDecision(
     event,
-    findings,
+    calibratedFindings,
     foundChallenges,
     foundRebuttals,
     compositeScore,

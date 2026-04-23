@@ -16,6 +16,68 @@ const decisionParamsSchema = z.object({
 });
 
 export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/api/workflows', async () => {
+    const events = await db.query.pipelineEvents.findMany({
+      with: {
+        findings: true,
+        challenges: true,
+        rebuttals: true,
+        decisions: true,
+      },
+      orderBy: (fields, operators) => [operators.desc(fields.createdAt)],
+      limit: 30,
+    });
+
+    return events.map((event) => {
+      const latestDecision = [...event.decisions].sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+      )[0];
+      const latestFinding = [...event.findings].sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+      )[0];
+      const latestChallenge = [...event.challenges].sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+      )[0];
+      const latestRebuttal = [...event.rebuttals].sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+      )[0];
+
+      const status = latestDecision
+        ? 'JUDGED'
+        : latestRebuttal
+          ? 'REBUTTING'
+          : latestChallenge
+            ? 'CHALLENGING'
+            : latestFinding
+              ? 'ANALYZING'
+              : 'STARTED';
+
+      return {
+        eventId: event.eventId,
+        repository: event.repository,
+        branch: event.branch,
+        commitSha: event.commitSha,
+        failureType: event.failureType,
+        status,
+        createdAt: event.createdAt,
+        timestamps: {
+          startedAt: event.createdAt,
+          round0At: latestFinding?.createdAt ?? null,
+          round1At: latestChallenge?.createdAt ?? null,
+          round2At: latestRebuttal?.createdAt ?? null,
+          round3At: latestDecision?.createdAt ?? null,
+        },
+        decision: latestDecision
+          ? {
+              decisionId: latestDecision.decisionId,
+              riskTier: latestDecision.riskTier,
+              compositeScore: latestDecision.compositeScore,
+            }
+          : null,
+      };
+    });
+  });
+
   fastify.get('/api/decisions', async () => {
     const rows = await db.query.decisions.findMany({
       with: {

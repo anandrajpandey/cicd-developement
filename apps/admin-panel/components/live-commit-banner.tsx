@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -14,6 +15,7 @@ type LiveCommitState = {
 } | null;
 
 export function LiveCommitBanner() {
+  const router = useRouter();
   const [liveCommit, setLiveCommit] = useState<LiveCommitState>(null);
 
   useEffect(() => {
@@ -23,6 +25,7 @@ export function LiveCommitBanner() {
       'debate:started',
       (payload: { eventId: string; repository: string; branch: string; failureType: string }) => {
         setLiveCommit(payload);
+        router.refresh();
       },
     );
 
@@ -30,12 +33,13 @@ export function LiveCommitBanner() {
       setLiveCommit((current) =>
         payload.decision.eventId && payload.decision.eventId === current?.eventId ? null : current,
       );
+      router.refresh();
     });
 
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [router]);
 
   return (
     <AnimatePresence>

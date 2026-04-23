@@ -1,10 +1,15 @@
+import { LiveWorkflowMonitor } from '../../components/live-workflow-monitor';
 import { TestcaseList } from '../../components/testcase-list';
+import { getTrpcCaller } from '../../lib/trpc/server';
 
 export const metadata = {
   title: 'Test Cases | AI CI/CD',
 };
 
-export default function TestCasesPage() {
+export default async function TestCasesPage() {
+  const caller = await getTrpcCaller();
+  const workflows = await caller.workflows();
+
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header className="flex flex-col gap-2">
@@ -16,8 +21,9 @@ export default function TestCasesPage() {
         </p>
       </header>
 
-      <main className="flex-1">
+      <main className="flex-1 space-y-6">
         <TestcaseList />
+        <LiveWorkflowMonitor initialWorkflows={workflows} />
       </main>
     </div>
   );

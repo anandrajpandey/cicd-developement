@@ -7,6 +7,7 @@ import {
   listApprovalQueue,
   listAutoMitigations,
   listDecisions,
+  listWorkflows,
   submitApproval,
   submitEvent,
 } from '../orchestrator';
@@ -83,6 +84,9 @@ export const appRouter = t.router({
   }),
   recentDecisions: t.procedure.query(async () => {
     return listDecisions();
+  }),
+  workflows: t.procedure.query(async () => {
+    return listWorkflows();
   }),
   submitEvent: t.procedure.input(submitEventSchema).mutation(async ({ input }) => {
     return submitEvent(input);
