@@ -24,7 +24,7 @@ import {
 } from '@agentic-cicd/shared-types';
 
 import { loadEnv } from '../env.js';
-import { loadCodeContext, type CodeContextEntry } from '../agents/utils.js';
+import { buildAgentPromptPayload, loadCodeContext, type CodeContextEntry } from '../agents/utils.js';
 
 import { buildAnalyzerPrompt } from '../prompts/build-analyzer.js';
 import { codeReviewerPrompt } from '../prompts/code-reviewer.js';
@@ -243,6 +243,7 @@ function buildGroundedJudgeInput(
 ) {
   return {
     ...input,
+    event: buildAgentPromptPayload(input.event, codeContext),
     codeContext,
   };
 }
@@ -738,13 +739,14 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
 
   try {
     const codeContext = await loadCodeContext(event);
+    const compactPayload = buildAgentPromptPayload(event, codeContext);
     const execution = (async () => {
       for await (const runnerEvent of roundZeroWorkflowRunner.runEphemeral({
         userId: `event:${event.eventId}`,
         newMessage: {
           parts: [
             {
-              text: JSON.stringify({ ...event, codeContext }, null, 2),
+              text: JSON.stringify(compactPayload, null, 2),
             },
           ],
         },
@@ -1017,6 +1019,5 @@ export function getAdkWorkflowSummary() {
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };
 }
-
 
 

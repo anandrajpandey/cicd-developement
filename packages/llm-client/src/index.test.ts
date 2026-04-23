@@ -41,6 +41,42 @@ test('chat falls back to Ollama when Groq returns a retryable 503 error', async 
   assert.equal(ollamaCalled, true);
 });
 
+test('chat falls back to Ollama when Groq returns a 413 request-too-large error', async () => {
+  let ollamaCalled = false;
+
+  const chat = createChatClient({
+    createGroqClient: () => ({
+      chat: {
+        completions: {
+          create: async () => {
+            throw { status: 413, message: 'request too large' };
+          },
+        },
+      },
+    }),
+    fetchFn: async () => {
+      ollamaCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            message: {
+              content: 'ollama 413 fallback response',
+            },
+          };
+        },
+      };
+    },
+    sleepFn: async () => {},
+    timeoutMs: 5,
+  });
+
+  const result = await chat(messages);
+  assert.equal(result, 'ollama 413 fallback response');
+  assert.equal(ollamaCalled, true);
+});
+
 test('chat rethrows non-retryable Groq errors instead of falling back', async () => {
   const chat = createChatClient({
     createGroqClient: () => ({

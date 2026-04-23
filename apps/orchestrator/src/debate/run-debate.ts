@@ -21,12 +21,17 @@ import {
   dependencyCheckerAgent,
   testAnalyzerAgent,
 } from '../agents/index.js';
-import { createTimeoutFinding, fallbackDecision } from '../agents/utils.js';
+import { createTimeoutFinding, fallbackDecision, isElevatedRiskPayload } from '../agents/utils.js';
 
 import { logger } from '../logger.js';
 import { applyAutoMitigationLocally } from '../scripts/auto-mitigator.js';
 import { judgePrompt } from '../prompts/judge.js';
 import { createDebateStartedPayload, emitDebateEvent } from '../realtime.js';
+import {
+  isEventCancelled,
+  markEventCompleted,
+  markEventRunning,
+} from './runtime-state.js';
 import {
   executeAdkChallenge,
   executeAdkJudge,
@@ -45,7 +50,9 @@ const analysisAgents = [
 ] as const;
 
 const ROUND_0_TIMEOUT_MS = 45_000;
+const ROUND_1_TIMEOUT_MS = 20_000;
 const ROUND_2_TIMEOUT_MS = 25_000;
+const ELEVATED_ROUND_0_TIMEOUT_MS = 60_000;
 
 const domainWeights: Record<AgentId, number> = {
   build_analyzer: 0.3,
@@ -61,6 +68,10 @@ interface DebateRoundOptions {
 interface RoundResult<T> {
   data: T;
   source: RoundExecutionSource;
+}
+
+function shouldStopDebate(eventId: string): boolean {
+  return isEventCancelled(eventId);
 }
 
 async function withTimeout<T>(
@@ -473,13 +484,19 @@ async function synthesizeDecision(
   source: RoundExecutionSource;
 }> {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
-  const adkJudge = await executeAdkJudge({
-    event,
-    findings: finalizedFindings,
-    rebuttals: foundRebuttals,
-    compositeScore,
-    riskTier,
-  });
+  const elevatedRiskPayload = isElevatedRiskPayload(event);
+  const adkJudge = elevatedRiskPayload
+    ? {
+        status: 'failed' as const,
+        errorMessage: 'Skipped ADK judge for elevated-risk payload to keep orchestration responsive.',
+      }
+    : await executeAdkJudge({
+        event,
+        findings: finalizedFindings,
+        rebuttals: foundRebuttals,
+        compositeScore,
+        riskTier,
+      });
 
   if (adkJudge.status === 'completed' && adkJudge.reasoning && adkJudge.recommendedAction) {
     return {
@@ -552,7 +569,16 @@ export async function runInitialAnalysis(
   event: PipelineEvent,
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<AgentFinding[]>> {
-  const adkRoundZero = await executeAdkRoundZero(event);
+  const elevatedRiskPayload = isElevatedRiskPayload(event);
+  const shouldBypassAdkRoundZero = elevatedRiskPayload;
+
+  const adkRoundZero = shouldBypassAdkRoundZero
+    ? {
+        status: 'failed' as const,
+        findings: [] as AgentFinding[],
+        errorMessage: 'Skipped ADK round zero for elevated-risk payload to avoid provider saturation.',
+      }
+    : await executeAdkRoundZero(event);
 
   if (
     adkRoundZero.status === 'completed' &&
@@ -585,27 +611,51 @@ export async function runInitialAnalysis(
     errorMessage: adkRoundZero.errorMessage,
   });
 
-  const settledFindings = await Promise.allSettled(
-    analysisAgents.map((agent) =>
-      withTimeout(agent.analyze(event), ROUND_0_TIMEOUT_MS, () =>
-        createTimeoutFinding(agent.agentId, event),
-      ),
-    ),
-  );
+  const findings: AgentFinding[] = [];
 
-  const findings = settledFindings.map((result, index) => {
-    if (result.status === 'fulfilled') {
-      return result.value;
+  if (elevatedRiskPayload) {
+    for (const agent of analysisAgents) {
+      try {
+        const finding = await withTimeout(
+          agent.analyze(event),
+          ELEVATED_ROUND_0_TIMEOUT_MS,
+          () => createTimeoutFinding(agent.agentId, event),
+        );
+        findings.push(finding);
+      } catch (error) {
+        logger.warn('Sequential elevated-risk analysis failed, using timeout/error fallback.', {
+          eventId: event.eventId,
+          agentId: agent.agentId,
+          error,
+        });
+        findings.push(createTimeoutFinding(agent.agentId, event));
+      }
     }
+  } else {
+    const settledFindings = await Promise.allSettled(
+      analysisAgents.map((agent) =>
+        withTimeout(agent.analyze(event), ROUND_0_TIMEOUT_MS, () =>
+          createTimeoutFinding(agent.agentId, event),
+        ),
+      ),
+    );
 
-    logger.warn('Agent analysis failed, using timeout/error fallback.', {
-      eventId: event.eventId,
-      agentId: analysisAgents[index].agentId,
-      error: result.reason,
-    });
+    findings.push(
+      ...settledFindings.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        }
 
-    return createTimeoutFinding(analysisAgents[index].agentId, event);
-  });
+        logger.warn('Agent analysis failed, using timeout/error fallback.', {
+          eventId: event.eventId,
+          agentId: analysisAgents[index].agentId,
+          error: result.reason,
+        });
+
+        return createTimeoutFinding(analysisAgents[index].agentId, event);
+      }),
+    );
+  }
 
   if (options.persist ?? true) {
     await persistFindings(findings, event.eventId);
@@ -629,11 +679,16 @@ export async function runInitialAnalysis(
 }
 
 export async function runCrossChallenges(
+  event: PipelineEvent,
   findings: AgentFinding[],
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Challenge[]>> {
   const eventId = findings[0]?.eventId;
-  const adkChallenges = await Promise.all(
+  const elevatedRiskPayload = isElevatedRiskPayload(event);
+  const shouldBypassAdkChallenges = elevatedRiskPayload;
+  const adkChallenges = shouldBypassAdkChallenges
+    ? analysisAgents.map(() => ({ status: 'failed' as const, challenge: null }))
+    : await Promise.all(
     analysisAgents.map(async (agent) => {
       const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
       const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
@@ -697,18 +752,35 @@ export async function runCrossChallenges(
     };
   }
 
-  const settledChallenges = await Promise.allSettled(
-    analysisAgents.map((agent) => {
-      const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
-      const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
+  const nativeChallengePromises = analysisAgents.map((agent) => {
+    const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
+    const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
 
-      if (!myFinding) {
-        return Promise.resolve(null);
-      }
+    if (!myFinding) {
+      return Promise.resolve(null);
+    }
 
-      return agent.challenge(myFinding, otherFindings);
-    }),
-  );
+    return withTimeout(agent.challenge(myFinding, otherFindings), ROUND_1_TIMEOUT_MS, () => null);
+  });
+  const settledChallenges = elevatedRiskPayload
+    ? await (async () => {
+        const sequentialResults: PromiseSettledResult<Challenge | null>[] = [];
+        for (const promise of nativeChallengePromises) {
+          try {
+            sequentialResults.push({
+              status: 'fulfilled',
+              value: await promise,
+            });
+          } catch (error) {
+            sequentialResults.push({
+              status: 'rejected',
+              reason: error,
+            });
+          }
+        }
+        return sequentialResults;
+      })()
+    : await Promise.allSettled(nativeChallengePromises);
 
   const validChallenges = settledChallenges
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
@@ -742,12 +814,17 @@ export async function runCrossChallenges(
 }
 
 export async function runRebuttals(
+  event: PipelineEvent,
   findings: AgentFinding[],
   foundChallenges: Challenge[],
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Rebuttal[]>> {
   const eventId = findings[0]?.eventId;
-  const adkRebuttalResults = await Promise.all(
+  const elevatedRiskPayload = isElevatedRiskPayload(event);
+  const shouldBypassAdkRebuttals = elevatedRiskPayload;
+  const adkRebuttalResults = shouldBypassAdkRebuttals
+    ? foundChallenges.map(() => ({ status: 'failed' as const, rebuttal: null }))
+    : await Promise.all(
     foundChallenges.map(async (challenge) => {
       const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
 
@@ -813,25 +890,42 @@ export async function runRebuttals(
     };
   }
 
-  const settledRebuttals = await Promise.allSettled(
-    foundChallenges.map((challenge) => {
-      const targetAgent = analysisAgents.find((agent) => agent.agentId === challenge.targetAgentId);
-      const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+  const nativeRebuttalPromises = foundChallenges.map((challenge) => {
+    const targetAgent = analysisAgents.find((agent) => agent.agentId === challenge.targetAgentId);
+    const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
 
-      if (!targetAgent || !myFinding) {
-        return Promise.resolve(null);
-      }
+    if (!targetAgent || !myFinding) {
+      return Promise.resolve(null);
+    }
 
-      return withTimeout(targetAgent.rebuttal(myFinding, challenge), ROUND_2_TIMEOUT_MS, () => ({
-        rebuttalId: randomUUID(),
-        respondingAgentId: challenge.targetAgentId,
-        challengeId: challenge.challengeId,
-        position: 'DEFEND' as const,
-        updatedConfidence: myFinding.confidence,
-        rebuttalFactor: 0.85 as const,
-      }));
-    }),
-  );
+    return withTimeout(targetAgent.rebuttal(myFinding, challenge), ROUND_2_TIMEOUT_MS, () => ({
+      rebuttalId: randomUUID(),
+      respondingAgentId: challenge.targetAgentId,
+      challengeId: challenge.challengeId,
+      position: 'DEFEND' as const,
+      updatedConfidence: myFinding.confidence,
+      rebuttalFactor: 0.85 as const,
+    }));
+  });
+  const settledRebuttals = elevatedRiskPayload
+    ? await (async () => {
+        const sequentialResults: PromiseSettledResult<Rebuttal | null>[] = [];
+        for (const promise of nativeRebuttalPromises) {
+          try {
+            sequentialResults.push({
+              status: 'fulfilled',
+              value: await promise,
+            });
+          } catch (error) {
+            sequentialResults.push({
+              status: 'rejected',
+              reason: error,
+            });
+          }
+        }
+        return sequentialResults;
+      })()
+    : await Promise.allSettled(nativeRebuttalPromises);
 
   const validRebuttals = settledRebuttals
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
@@ -922,59 +1016,84 @@ export async function runJudgeSynthesis(
 }
 
 export async function runDebate(event: PipelineEvent): Promise<void> {
+  markEventRunning(event.eventId);
   const adkWorkflow = getAdkWorkflowSummary();
-  await emitDebateEvent('debate:started', event.eventId, createDebateStartedPayload(event));
+  try {
+    await emitDebateEvent('debate:started', event.eventId, createDebateStartedPayload(event));
 
-  const initialAnalysis = await runInitialAnalysis(event);
-  const crossChallenges = await runCrossChallenges(initialAnalysis.data);
-  const rebuttals = await runRebuttals(initialAnalysis.data, crossChallenges.data);
-  const executionMeta: ExecutionMeta = {
-    round0: initialAnalysis.source,
-    round1: crossChallenges.source,
-    round2: rebuttals.source,
-    round3: 'NATIVE',
-  };
-  const judgeSynthesis = await runJudgeSynthesis(
-    event,
-    initialAnalysis.data,
-    crossChallenges.data,
-    rebuttals.data,
-    executionMeta,
-  );
-
-  logger.info('Debate pipeline complete.', {
-    eventId: event.eventId,
-    repository: event.repository,
-    adkWorkflow,
-    executionMeta,
-    findings: initialAnalysis.data,
-    foundChallenges: crossChallenges.data,
-    foundRebuttals: rebuttals.data,
-    decision: judgeSynthesis.data,
-  });
-
-  if (judgeSynthesis.data.riskTier === 'LOW') {
-    let diffContent: string | null = null;
-    try {
-      diffContent = await applyAutoMitigationLocally(event.branch, judgeSynthesis.data.recommendedAction);
-    } catch (e) {
-      logger.error('Failed to write and push automated fix.', { error: e });
+    const initialAnalysis = await runInitialAnalysis(event);
+    if (shouldStopDebate(event.eventId)) {
+      logger.info('Debate cancelled after Round 0.', { eventId: event.eventId });
+      return;
     }
 
-    await db.insert(approvals).values({
-      approvalId: randomUUID(),
-      decisionId: judgeSynthesis.data.decisionId,
-      approver: 'Auto-Mitigator',
-      action: 'APPROVE',
-      justification: 'Automated mitigation for LOW risk pipeline failure.',
-      timestamp: new Date(),
-      mitigationDiff: diffContent,
+    const crossChallenges = await runCrossChallenges(event, initialAnalysis.data);
+    if (shouldStopDebate(event.eventId)) {
+      logger.info('Debate cancelled after Round 1.', { eventId: event.eventId });
+      return;
+    }
+
+    const rebuttals = await runRebuttals(event, initialAnalysis.data, crossChallenges.data);
+    if (shouldStopDebate(event.eventId)) {
+      logger.info('Debate cancelled after Round 2.', { eventId: event.eventId });
+      return;
+    }
+
+    const executionMeta: ExecutionMeta = {
+      round0: initialAnalysis.source,
+      round1: crossChallenges.source,
+      round2: rebuttals.source,
+      round3: 'NATIVE',
+    };
+    const judgeSynthesis = await runJudgeSynthesis(
+      event,
+      initialAnalysis.data,
+      crossChallenges.data,
+      rebuttals.data,
+      executionMeta,
+    );
+
+    logger.info('Debate pipeline complete.', {
+      eventId: event.eventId,
+      repository: event.repository,
+      adkWorkflow,
+      executionMeta,
+      findings: initialAnalysis.data,
+      foundChallenges: crossChallenges.data,
+      foundRebuttals: rebuttals.data,
+      decision: judgeSynthesis.data,
     });
 
-    logger.info('Low risk decision automatically mitigated.', {
-      eventId: event.eventId,
-      decisionId: judgeSynthesis.data.decisionId,
-    });
+    if (!shouldStopDebate(event.eventId) && judgeSynthesis.data.riskTier === 'LOW') {
+      let diffContent: string | null = null;
+      try {
+        diffContent = await applyAutoMitigationLocally(
+          event.branch,
+          judgeSynthesis.data.recommendedAction,
+        );
+      } catch (e) {
+        logger.error('Failed to write and push automated fix.', { error: e });
+      }
+
+      await db.insert(approvals).values({
+        approvalId: randomUUID(),
+        decisionId: judgeSynthesis.data.decisionId,
+        approver: 'Auto-Mitigator',
+        action: 'APPROVE',
+        justification: 'Automated mitigation for LOW risk pipeline failure.',
+        timestamp: new Date(),
+        mitigationDiff: diffContent,
+      });
+
+      logger.info('Low risk decision automatically mitigated.', {
+        eventId: event.eventId,
+        decisionId: judgeSynthesis.data.decisionId,
+      });
+    }
+  } finally {
+    if (!shouldStopDebate(event.eventId)) {
+      markEventCompleted(event.eventId);
+    }
   }
 }
 

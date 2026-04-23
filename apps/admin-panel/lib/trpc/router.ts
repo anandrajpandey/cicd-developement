@@ -2,6 +2,7 @@ import { initTRPC } from '@trpc/server';
 import { z } from 'zod';
 
 import {
+  cancelEvent,
   fetchGitHubDiff,
   getDecision,
   listApprovalQueue,
@@ -93,6 +94,9 @@ export const appRouter = t.router({
   }),
   submitApproval: t.procedure.input(submitApprovalSchema).mutation(async ({ input }) => {
     return submitApproval(input);
+  }),
+  cancelEvent: t.procedure.input(z.string().uuid()).mutation(async ({ input }) => {
+    return cancelEvent(input);
   }),
   githubDiff: t.procedure.input(githubDiffSchema).query(async ({ input }) => {
     return fetchGitHubDiff(input.repo, input.pr);

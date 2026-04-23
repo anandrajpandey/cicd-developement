@@ -30,7 +30,13 @@ export interface DecisionListItem {
   branch: string;
 }
 
-export type WorkflowStatus = 'STARTED' | 'ANALYZING' | 'CHALLENGING' | 'REBUTTING' | 'JUDGED';
+export type WorkflowStatus =
+  | 'STARTED'
+  | 'ANALYZING'
+  | 'CHALLENGING'
+  | 'REBUTTING'
+  | 'JUDGED'
+  | 'CANCELLED';
 
 export interface WorkflowListItem {
   eventId: string;
@@ -40,12 +46,18 @@ export interface WorkflowListItem {
   failureType: string;
   status: WorkflowStatus;
   createdAt: string;
+  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
   timestamps: {
     startedAt: string;
     round0At: string | null;
     round1At: string | null;
     round2At: string | null;
     round3At: string | null;
+  };
+  counts?: {
+    findings: number;
+    challenges: number;
+    rebuttals: number;
   };
   decision: {
     decisionId: string;
@@ -74,6 +86,7 @@ export interface DecisionDetail {
     errorLog: string;
     timestamp: string;
   } | null;
+  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
   findings: Array<{
     findingId: string;
     agentId: string;
@@ -219,6 +232,13 @@ export async function submitApproval(payload: ApprovalSubmissionInput) {
   return requestJson<{ status: string; decisionId: string }>('/api/approvals', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function cancelEvent(eventId: string) {
+  return requestJson<{ eventId: string; status: string }>(`/api/events/${eventId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 

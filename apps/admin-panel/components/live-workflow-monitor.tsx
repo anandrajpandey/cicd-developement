@@ -25,6 +25,8 @@ function statusLabel(status: WorkflowStatus) {
       return 'Round 2';
     case 'JUDGED':
       return 'Complete';
+    case 'CANCELLED':
+      return 'Cancelled';
   }
 }
 
@@ -39,6 +41,8 @@ function progressWidth(status: WorkflowStatus) {
     case 'REBUTTING':
       return '82%';
     case 'JUDGED':
+      return '100%';
+    case 'CANCELLED':
       return '100%';
   }
 }
@@ -56,6 +60,39 @@ function formatTimestamp(value: string | null) {
     day: '2-digit',
     month: 'short',
   }).format(date);
+}
+
+function formatRoundTimestamp(
+  workflow: WorkflowListItem,
+  round: 'round0At' | 'round1At' | 'round2At' | 'round3At',
+) {
+  const value = workflow.timestamps[round];
+
+  if (value) {
+    return formatTimestamp(value);
+  }
+
+  if (workflow.status === 'CANCELLED') {
+    return 'Cancelled';
+  }
+
+  if (round === 'round1At' && workflow.timestamps.round3At && (workflow.counts?.challenges ?? 0) === 0) {
+    return 'No challenge needed';
+  }
+
+  if (round === 'round2At' && workflow.timestamps.round3At && (workflow.counts?.rebuttals ?? 0) === 0) {
+    return 'No rebuttal needed';
+  }
+
+  if (round === 'round1At' && workflow.timestamps.round2At && (workflow.counts?.challenges ?? 0) === 0) {
+    return 'No challenge needed';
+  }
+
+  if (round === 'round2At' && workflow.timestamps.round3At && (workflow.counts?.challenges ?? 0) === 0) {
+    return 'No rebuttal needed';
+  }
+
+  return 'Pending';
 }
 
 function upsertWorkflow(
@@ -135,6 +172,16 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
         router.refresh();
       },
     );
+
+    socket.on('debate:cancelled', (payload: { eventId: string; status: 'CANCELLED' }) => {
+      setWorkflows((current) =>
+        upsertWorkflow(current, {
+          eventId: payload.eventId,
+          status: 'CANCELLED',
+        }),
+      );
+      router.refresh();
+    });
 
     socket.on('round:0:complete', (payload: { eventId: string }) => {
       const now = new Date().toISOString();
@@ -296,19 +343,19 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 0</div>
-                      <div className="mt-1 font-mono">{formatTimestamp(workflow.timestamps.round0At)}</div>
+                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round0At')}</div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 1</div>
-                      <div className="mt-1 font-mono">{formatTimestamp(workflow.timestamps.round1At)}</div>
+                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round1At')}</div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 2</div>
-                      <div className="mt-1 font-mono">{formatTimestamp(workflow.timestamps.round2At)}</div>
+                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round2At')}</div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Judge</div>
-                      <div className="mt-1 font-mono">{formatTimestamp(workflow.timestamps.round3At)}</div>
+                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round3At')}</div>
                     </div>
                   </div>
                 </motion.div>

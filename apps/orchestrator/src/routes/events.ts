@@ -3,7 +3,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import { db, pipelineEvents } from '@agentic-cicd/db';
 import { pipelineEventSchema } from '@agentic-cicd/shared-types';
 
-import { runDebate } from '../debate/run-debate.js';
+import { getEventRuntimeStatus } from '../debate/runtime-state.js';
+import { cancelDebateWorker, startDebateWorker } from '../debate/worker-processes.js';
+import { emitDebateEvent } from '../realtime.js';
 
 const responseSchema = {
   202: {
@@ -60,17 +62,80 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
       fastify.log.info({ eventId: event.eventId }, 'Pipeline event stored.');
 
-      void runDebate(event).catch((error: unknown) => {
-        fastify.log.error(
-          { err: error, eventId: event.eventId },
-          'Debate pipeline failed after intake.',
-        );
-      });
+      startDebateWorker(event);
 
       return reply.code(202).send({
         eventId: event.eventId,
         status: 'accepted',
       });
+    },
+  );
+
+  fastify.post(
+    '/api/events/:id/cancel',
+    async (request, reply) => {
+      try {
+        const params = (request.params ?? {}) as { id?: string };
+        const id = typeof params.id === 'string' ? params.id.trim() : '';
+
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+          return reply.status(400).send({
+            message: 'Invalid event id.',
+          });
+        }
+
+        const runtimeStatus = getEventRuntimeStatus(id);
+
+        if (runtimeStatus === 'COMPLETED') {
+          return reply.status(409).send({
+            eventId: id,
+            status: 'completed',
+          });
+        }
+
+        if (runtimeStatus === null) {
+          const [eventRow, decisionRow] = await Promise.all([
+            db.query.pipelineEvents.findFirst({
+              where: (fields, operators) => operators.eq(fields.eventId, id),
+            }),
+            db.query.decisions.findFirst({
+              where: (fields, operators) => operators.eq(fields.eventId, id),
+            }),
+          ]);
+
+          if (!eventRow) {
+            return reply.status(404).send({
+              eventId: id,
+              status: 'not_found',
+            });
+          }
+
+          if (decisionRow) {
+            return reply.status(409).send({
+              eventId: id,
+              status: 'completed',
+            });
+          }
+        }
+
+        cancelDebateWorker(id);
+        void emitDebateEvent('debate:cancelled', id, {
+          eventId: id,
+          status: 'CANCELLED',
+        }).catch((error) => {
+          fastify.log.error({ err: error, eventId: id }, 'Failed to emit cancellation event.');
+        });
+
+        return reply.code(202).send({
+          eventId: id,
+          status: 'cancelled',
+        });
+      } catch (error) {
+        fastify.log.error({ err: error }, 'Cancel route failed.');
+        return reply.status(500).send({
+          message: error instanceof Error ? error.message : 'Unknown cancellation error.',
+        });
+      }
     },
   );
 };

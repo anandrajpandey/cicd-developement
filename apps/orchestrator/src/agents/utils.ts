@@ -44,6 +44,17 @@ export interface CodeContextEntry {
   endLine: number;
 }
 
+export interface AgentPromptPayload {
+  eventId: string;
+  repository: string;
+  commitSha: string;
+  branch: string;
+  failureType: string;
+  timestamp: string;
+  errorLog: string;
+  codeContext: CodeContextEntry[];
+}
+
 const CONTEXT_FILE_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs|json|yml|yaml|md)$/i;
 const WORKSPACE_IGNORE_DIRS = new Set([
   '.git',
@@ -58,6 +69,13 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 ]);
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
+const LOW_RISK_CONTEXT_LIMIT = 8;
+const ELEVATED_RISK_CONTEXT_LIMIT = 3;
+const LOW_RISK_SNIPPET_LENGTH = 1200;
+const ELEVATED_RISK_SNIPPET_LENGTH = 420;
+const LOW_RISK_ERROR_LOG_LENGTH = 2800;
+const ELEVATED_RISK_ERROR_LOG_LENGTH = 1200;
+const codeContextCache = new Map<string, Promise<CodeContextEntry[]>>();
 
 function defaultRemediationForAgent(agentId: AgentId): string {
   switch (agentId) {
@@ -180,6 +198,10 @@ function humanizeAgentError(reason: string): string {
   }
 
   if (reason.includes('Bad control character')) {
+    return 'The model returned malformed JSON content.';
+  }
+
+  if (reason.includes('Unexpected token') || reason.includes('is not valid JSON')) {
     return 'The model returned malformed JSON content.';
   }
 
@@ -308,6 +330,59 @@ function formatSnippetWithLineNumbers(lines: string[], startLine: number): strin
     .join('\n');
 }
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}\n... [truncated]`;
+}
+
+export function isElevatedRiskPayload(
+  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
+): boolean {
+  const failureType = event.failureType.toLowerCase();
+  const errorLog = event.errorLog.toLowerCase();
+
+  return (
+    failureType.includes('test') ||
+    failureType.includes('build') ||
+    errorLog.includes('fail ') ||
+    errorLog.includes('test suites:') ||
+    errorLog.includes('expected:') ||
+    errorLog.includes('received:') ||
+    errorLog.includes('module not found') ||
+    errorLog.includes("can't resolve") ||
+    errorLog.includes('critical') ||
+    errorLog.includes('vulnerability') ||
+    errorLog.includes('cve-')
+  );
+}
+
+export function buildAgentPromptPayload(
+  event: PipelineEvent,
+  codeContext: CodeContextEntry[],
+): AgentPromptPayload {
+  const elevated = isElevatedRiskPayload(event);
+  const maxContextEntries = elevated ? ELEVATED_RISK_CONTEXT_LIMIT : LOW_RISK_CONTEXT_LIMIT;
+  const maxSnippetLength = elevated ? ELEVATED_RISK_SNIPPET_LENGTH : LOW_RISK_SNIPPET_LENGTH;
+  const maxErrorLogLength = elevated ? ELEVATED_RISK_ERROR_LOG_LENGTH : LOW_RISK_ERROR_LOG_LENGTH;
+
+  return {
+    eventId: event.eventId,
+    repository: event.repository,
+    commitSha: event.commitSha,
+    branch: event.branch,
+    failureType: event.failureType,
+    timestamp: event.timestamp.toISOString(),
+    errorLog: truncateText(event.errorLog, maxErrorLogLength),
+    codeContext: codeContext.slice(0, maxContextEntries).map((entry) => ({
+      ...entry,
+      snippet: truncateText(entry.snippet, maxSnippetLength),
+    })),
+  };
+}
+
 async function collectWorkspaceFiles(root: string): Promise<string[]> {
   const files: string[] = [];
   const queue: string[] = [root];
@@ -429,44 +504,60 @@ async function searchWorkspaceContext(
 }
 
 export async function loadCodeContext(event: PipelineEvent): Promise<CodeContextEntry[]> {
-  const cwd = process.cwd();
-  const snippets: CodeContextEntry[] = [];
-  const lineHints = parseLineHints(event.errorLog);
-
-  for (const candidate of collectCandidatePaths(event.errorLog).slice(0, 3)) {
-    const absolutePath = path.resolve(cwd, candidate);
-    const relativePath = path.relative(cwd, absolutePath);
-
-    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-      continue;
-    }
-
-    try {
-      const raw = await readFile(absolutePath, 'utf8');
-      const hintedLine = lineHints.get(candidate)?.[0];
-      const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, hintedLine);
-
-      snippets.push({
-        path: candidate,
-        snippet,
-        reason: hintedLine
-          ? `Referenced by the pipeline error log around line ${hintedLine}.`
-          : 'Referenced by the pipeline error log or import trace.',
-        startLine,
-        endLine,
-      });
-    } catch {
-      // Ignore missing files so the rest of the debate can continue.
-    }
+  const cached = codeContextCache.get(event.eventId);
+  if (cached) {
+    return cached;
   }
 
-  const repoMatches = await searchWorkspaceContext(
-    cwd,
-    event.errorLog,
-    new Set(snippets.map((entry) => entry.path)),
-  );
+  const contextPromise = (async () => {
+    const cwd = process.cwd();
+    const snippets: CodeContextEntry[] = [];
+    const lineHints = parseLineHints(event.errorLog);
 
-  return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
+    for (const candidate of collectCandidatePaths(event.errorLog).slice(0, 3)) {
+      const absolutePath = path.resolve(cwd, candidate);
+      const relativePath = path.relative(cwd, absolutePath);
+
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        continue;
+      }
+
+      try {
+        const raw = await readFile(absolutePath, 'utf8');
+        const hintedLine = lineHints.get(candidate)?.[0];
+        const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, hintedLine);
+
+        snippets.push({
+          path: candidate,
+          snippet,
+          reason: hintedLine
+            ? `Referenced by the pipeline error log around line ${hintedLine}.`
+            : 'Referenced by the pipeline error log or import trace.',
+          startLine,
+          endLine,
+        });
+      } catch {
+        // Ignore missing files so the rest of the debate can continue.
+      }
+    }
+
+    const repoMatches = await searchWorkspaceContext(
+      cwd,
+      event.errorLog,
+      new Set(snippets.map((entry) => entry.path)),
+    );
+
+    return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
+  })();
+
+  codeContextCache.set(event.eventId, contextPromise);
+
+  try {
+    return await contextPromise;
+  } catch (error) {
+    codeContextCache.delete(event.eventId);
+    throw error;
+  }
 }
 
 function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string): AgentFinding {
@@ -525,20 +616,7 @@ export async function analyzeWithPrompt(
   event: PipelineEvent,
 ): Promise<AgentFinding> {
   const codeContext = await loadCodeContext(event);
-  const userMessage = JSON.stringify(
-    {
-      eventId: event.eventId,
-      repository: event.repository,
-      commitSha: event.commitSha,
-      branch: event.branch,
-      failureType: event.failureType,
-      timestamp: event.timestamp.toISOString(),
-      errorLog: event.errorLog,
-      codeContext,
-    },
-    null,
-    2,
-  );
+  const userMessage = JSON.stringify(buildAgentPromptPayload(event, codeContext), null, 2);
 
   try {
     const response = await chat(

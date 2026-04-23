@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { io } from 'socket.io-client';
 
+import { cancelEvent } from '../../lib/orchestrator';
 import type { DecisionDetail } from '../../lib/orchestrator';
 import { DebateGraph } from './DebateGraph';
 import { DebateChatFeed } from './DebateChatFeed';
@@ -167,6 +168,8 @@ export function DebateViewer({
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges); 
   const [rebuttals, setRebuttals] = useState<Partial<Record<AgentId, Rebuttal>>>(initialRebuttals);
   const [decision, setDecision] = useState<Decision | null>(initialDecision);   
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [isCancelled, setIsCancelled] = useState(initialData?.runtimeStatus === 'CANCELLED');
   
   const [hoveredNode, setHoveredNode] = useState<AgentId | null>(null);
 
@@ -185,6 +188,7 @@ export function DebateViewer({
     setChallenges(initialChallenges);
     setRebuttals(initialRebuttals);
     setDecision(initialDecision);
+    setIsCancelled(initialData?.runtimeStatus === 'CANCELLED');
   }, [eventId, initialChallenges, initialDecision, initialFindings, initialRebuttals]);
 
   useEffect(() => {
@@ -208,7 +212,17 @@ export function DebateViewer({
         test_analyzer: 'analyzing',
         dependency_checker: 'analyzing',
       });
+      setIsCancelled(false);
     });
+
+    socket.on(
+      'debate:cancelled',
+      (payload: { eventId: string; status: 'CANCELLED' }) => {
+        if (payload.eventId !== eventId) return;
+        setIsCancelled(true);
+        setStatuses(DEFAULT_STATUSES);
+      },
+    );
 
     socket.on(
       'round:0:finding',
@@ -361,14 +375,39 @@ export function DebateViewer({
   const displayedRebuttals = currentRound >= 2 ? rebuttals : {};
   const displayedDecision = currentRound >= 3 ? decision : null;
 
+  async function handleCancel() {
+    setIsCancelling(true);
+    try {
+      await cancelEvent(eventId);
+      setIsCancelled(true);
+      setStatuses(DEFAULT_STATUSES);
+    } finally {
+      setIsCancelling(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#0A0A0A] overflow-hidden flex flex-col font-sans">
       <div className="flex-none p-4 flex items-center justify-between bg-[#0F1218]">
         <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-white tracking-widest uppercase">Agentic Trace</h1>
             <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
+            {isCancelled ? (
+              <span className="px-3 py-1 rounded-md border border-red-500/30 bg-red-500/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-300">
+                Cancelled
+              </span>
+            ) : null}
         </div>
         <div className="flex bg-white/5 rounded-lg p-1 gap-1">
+            {!displayedDecision && !isCancelled ? (
+              <button
+                onClick={handleCancel}
+                disabled={isCancelling}
+                className="px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-red-500/10 text-red-300 shadow-lg hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCancelling ? 'Stopping...' : 'Stop Event'}
+              </button>
+            ) : null}
             <button onClick={() => setSelectedRound('live')} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Live View</button>
             <button onClick={() => setSelectedRound(3)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Final Decision</button>
             <a href="/" className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20">Exit</a>

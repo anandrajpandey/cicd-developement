@@ -7,6 +7,14 @@ loadEnv();
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? '0.0.0.0';
 
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled promise rejection in orchestrator:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception in orchestrator:', error);
+});
+
 async function start(): Promise<void> {
   const app = buildApp();
 

@@ -23,6 +23,10 @@ export interface DebateRealtimePayloads {
     branch: string;
     failureType: string;
   };
+  'debate:cancelled': {
+    eventId: string;
+    status: 'CANCELLED';
+  };
   'round:0:finding': {
     eventId: string;
     agentId: AgentFinding['agentId'];

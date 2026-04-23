@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { approvals, db } from '@agentic-cicd/db';
 import { approvalSchema } from '@agentic-cicd/shared-types';
+import { getEventRuntimeStatus } from '../debate/runtime-state.js';
 
 const approvalRequestSchema = approvalSchema.extend({
   decisionId: z.string().uuid(),
@@ -42,7 +43,10 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
       )[0];
 
-      const status = latestDecision
+      const runtimeStatus = getEventRuntimeStatus(event.eventId);
+      const status = runtimeStatus === 'CANCELLED'
+        ? 'CANCELLED'
+        : latestDecision
         ? 'JUDGED'
         : latestRebuttal
           ? 'REBUTTING'
@@ -51,6 +55,21 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
             : latestFinding
               ? 'ANALYZING'
               : 'STARTED';
+      const inferredRound0At =
+        latestFinding?.createdAt ??
+        latestChallenge?.createdAt ??
+        latestRebuttal?.createdAt ??
+        latestDecision?.createdAt ??
+        null;
+      const inferredRound1At =
+        latestChallenge?.createdAt ??
+        latestRebuttal?.createdAt ??
+        latestDecision?.createdAt ??
+        null;
+      const inferredRound2At =
+        latestRebuttal?.createdAt ??
+        latestDecision?.createdAt ??
+        null;
 
       return {
         eventId: event.eventId,
@@ -60,12 +79,18 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         failureType: event.failureType,
         status,
         createdAt: event.createdAt,
+        runtimeStatus,
         timestamps: {
           startedAt: event.createdAt,
-          round0At: latestFinding?.createdAt ?? null,
-          round1At: latestChallenge?.createdAt ?? null,
-          round2At: latestRebuttal?.createdAt ?? null,
+          round0At: inferredRound0At,
+          round1At: inferredRound1At,
+          round2At: inferredRound2At,
           round3At: latestDecision?.createdAt ?? null,
+        },
+        counts: {
+          findings: event.findings.length,
+          challenges: event.challenges.length,
+          rebuttals: event.rebuttals.length,
         },
         decision: latestDecision
           ? {
@@ -147,6 +172,7 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       decision: decisionRow ?? null,
       event,
+      runtimeStatus: event ? getEventRuntimeStatus(event.eventId) : null,
       findings: findingRows,
       challenges: challengeRows,
       rebuttals: rebuttalRows,
