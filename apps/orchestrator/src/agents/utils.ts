@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { chat } from '@agentic-cicd/llm-client';
+import { chat, createChatClient } from '@agentic-cicd/llm-client';
 import {
   type AgentFinding,
   type AgentId,
@@ -16,6 +16,7 @@ import {
 } from '@agentic-cicd/shared-types';
 
 const FALLBACK_CHAT_MODEL = 'llama-3.1-8b-instant';
+const fastChat = createChatClient({ timeoutMs: 20_000 });
 
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
@@ -69,11 +70,11 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 ]);
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
-const LOW_RISK_CONTEXT_LIMIT = 8;
+const LOW_RISK_CONTEXT_LIMIT = 3;
 const ELEVATED_RISK_CONTEXT_LIMIT = 3;
-const LOW_RISK_SNIPPET_LENGTH = 1200;
+const LOW_RISK_SNIPPET_LENGTH = 420;
 const ELEVATED_RISK_SNIPPET_LENGTH = 420;
-const LOW_RISK_ERROR_LOG_LENGTH = 2800;
+const LOW_RISK_ERROR_LOG_LENGTH = 1200;
 const ELEVATED_RISK_ERROR_LOG_LENGTH = 1200;
 const codeContextCache = new Map<string, Promise<CodeContextEntry[]>>();
 
@@ -541,11 +542,13 @@ export async function loadCodeContext(event: PipelineEvent): Promise<CodeContext
       }
     }
 
-    const repoMatches = await searchWorkspaceContext(
-      cwd,
-      event.errorLog,
-      new Set(snippets.map((entry) => entry.path)),
-    );
+    const repoMatches = isElevatedRiskPayload(event)
+      ? await searchWorkspaceContext(
+          cwd,
+          event.errorLog,
+          new Set(snippets.map((entry) => entry.path)),
+        )
+      : [];
 
     return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
   })();
@@ -619,7 +622,7 @@ export async function analyzeWithPrompt(
   const userMessage = JSON.stringify(buildAgentPromptPayload(event, codeContext), null, 2);
 
   try {
-    const response = await chat(
+    const response = await fastChat(
       [
         { role: 'system', content: prompt },
         {
@@ -698,7 +701,7 @@ Rules:
   );
 
   try {
-    const response = await chat(
+    const response = await fastChat(
       [
         { role: 'system', content: prompt },
         {
@@ -805,7 +808,7 @@ Rules:
   );
 
   try {
-    const response = await chat(
+    const response = await fastChat(
       [
         { role: 'system', content: prompt },
         {
