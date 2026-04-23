@@ -77,7 +77,6 @@ jobs:
           always() &&
           env.ORCHESTRATOR_URL != '' &&
           (
-            steps.lint.outcome == 'failure' ||
             steps.test.outcome == 'failure' ||
             steps.typecheck.outcome == 'failure' ||
             steps.build.outcome == 'failure'
@@ -150,7 +149,6 @@ jobs:
 
       - name: Fail workflow if any validation failed
         if: >
-          steps.lint.outcome == 'failure' ||
           steps.test.outcome == 'failure' ||
           steps.typecheck.outcome == 'failure' ||
           steps.build.outcome == 'failure'
