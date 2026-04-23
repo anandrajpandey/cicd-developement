@@ -16,8 +16,14 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
     notFound();
   }
 
-  const riskTier = data.decision.riskTier;
-  const adkCoverage = getAdkCoverage(data.decision.executionMeta);
+  const riskTier = data.decision?.riskTier ?? 'LOW';
+  const executionMeta = data.decision?.executionMeta ?? {
+    round0: 'NATIVE',
+    round1: 'NATIVE',
+    round2: 'NATIVE',
+    round3: 'NATIVE',
+  };
+  const adkCoverage = getAdkCoverage(executionMeta);
 
   return (
     <div className="space-y-6">
@@ -30,19 +36,19 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               {data.event?.branch} / {data.event?.failureType} / {data.event?.commitSha}
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <ExecutionPathStrip meta={data.decision.executionMeta} />
+              <ExecutionPathStrip meta={executionMeta} />
               <span className="text-xs uppercase tracking-[0.2em] text-mist/55">
                 {adkCoverage.adkRounds}/{adkCoverage.totalRounds} rounds on ADK
               </span>
               <span className="text-xs uppercase tracking-[0.2em] text-mist/55">
-                {Math.round(data.decision.compositeScore * 100)} score
+                {Math.round((data.decision?.compositeScore ?? 0) * 100)} score
               </span>
             </div>
           </div>
-          <RiskBadge tier={riskTier} />
+          {data.decision ? <RiskBadge tier={riskTier} /> : <span className="px-3 py-1 rounded-full border border-[rgba(255,255,255,0.1)] text-xs text-mist bg-black/20">LIVE EVALUATING...</span>}
         </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
-          <ExecutionStatusCard meta={data.decision.executionMeta} />
+          <ExecutionStatusCard meta={executionMeta} />
           <div className="rounded-3xl border border-line bg-[rgba(7,15,26,0.65)] p-4">
             <p className="text-[11px] uppercase tracking-[0.24em] text-mist/55">Failure Log</p>
             <pre className="mt-3 max-h-40 scroll-panel overflow-auto whitespace-pre-wrap text-xs leading-6 text-mist/72">
@@ -56,7 +62,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         <DebateViewer key={data.event?.eventId ?? id} eventId={data.event?.eventId ?? id} initialData={data} />
       </div>
 
-      <ApprovalPanel decisionId={data.decision.decisionId} isAutoMitigated={riskTier === 'LOW'} />
+      <ApprovalPanel decisionId={data.decision?.decisionId ?? 'unknown'} isAutoMitigated={riskTier === 'LOW'} />
     </div>
   );
 }

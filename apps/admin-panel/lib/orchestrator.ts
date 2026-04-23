@@ -1,4 +1,11 @@
-const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:4000';
+const defaultOrchestratorUrls = [
+  process.env.ORCHESTRATOR_URL,
+  process.env.NEXT_PUBLIC_ORCHESTRATOR_URL,
+  'http://127.0.0.1:4000',
+  'http://localhost:4000',
+].filter((value): value is string => Boolean(value));
+
+const orchestratorUrls = [...new Set(defaultOrchestratorUrls)];
 
 export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
 export type RoundExecutionSource = 'ADK' | 'NATIVE';
@@ -97,20 +104,30 @@ export interface ApprovalSubmissionInput {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${orchestratorUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    cache: 'no-store',
-  });
+  let lastError: unknown;
 
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  for (const baseUrl of orchestratorUrls) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status} via ${baseUrl}`);
+      }
+
+      return response.json() as Promise<T>;
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  return response.json() as Promise<T>;
+  throw lastError instanceof Error ? lastError : new Error('Failed to reach orchestrator.');
 }
 
 export async function listDecisions(): Promise<DecisionListItem[]> {
@@ -124,8 +141,11 @@ export async function listDecisions(): Promise<DecisionListItem[]> {
 export async function getDecision(id: string): Promise<DecisionDetail | null> {
   try {
     return await requestJson<DecisionDetail>(`/api/decisions/${id}`);
-    } catch (e) {
-      console.error('getDecision fetch failed:', e);
+  } catch (e) {
+    console.error('getDecision fetch failed:', e);
+    return null;
+  }
+}
 
 export async function listApprovalQueue(): Promise<DecisionListItem[]> {
   try {

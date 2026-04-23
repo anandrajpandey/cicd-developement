@@ -60,7 +60,10 @@ function toRebuttal(rebuttal: DecisionDetail['rebuttals'][number]): Rebuttal {
   };
 }
 
-function toDecision(decision: DecisionDetail['decision']): Decision {
+function toDecision(decision: DecisionDetail['decision']): Decision | null {
+  if (!decision) {
+    return null;
+  }
   return {
     decisionId: decision.decisionId,
     compositeScore: decision.compositeScore,
@@ -330,13 +333,15 @@ export function DebateViewer({
     socket.on(
       'decision:ready',
       ({ decision: incomingDecision }: { decision: DecisionDetail['decision'] | Decision }) => {
+        if (!incomingDecision) return;
         const normalized =
           'eventId' in incomingDecision
-            ? toDecision(incomingDecision as DecisionDetail['decision'])        
+            ? toDecision(incomingDecision as DecisionDetail['decision'])
             : (incomingDecision as Decision);
+        if (!normalized) return;
         if (
           'eventId' in incomingDecision &&
-          (incomingDecision as DecisionDetail['decision']).eventId !== eventId  
+          incomingDecision?.eventId !== eventId
         ) {
           return;
         }

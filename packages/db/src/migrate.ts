@@ -17,7 +17,7 @@ async function migrate(): Promise<void> {
     const migrationSql = await readFile(migrationPath, 'utf8');
 
     const statements = migrationSql
-      .split(/;\s*\r?\n/)
+      .split(/--> statement-breakpoint/)
       .map((statement) => statement.trim())
       .filter((statement) => statement.length > 0);
 
