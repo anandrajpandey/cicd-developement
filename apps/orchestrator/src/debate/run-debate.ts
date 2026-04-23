@@ -44,8 +44,8 @@ const analysisAgents = [
   dependencyCheckerAgent,
 ] as const;
 
-const ROUND_0_TIMEOUT_MS = 30_000;
-const ROUND_2_TIMEOUT_MS = 20_000;
+const ROUND_0_TIMEOUT_MS = 45_000;
+const ROUND_2_TIMEOUT_MS = 25_000;
 
 const domainWeights: Record<AgentId, number> = {
   build_analyzer: 0.3,

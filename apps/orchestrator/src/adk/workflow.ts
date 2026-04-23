@@ -535,7 +535,32 @@ function parseAdkFinding(
 
   try {
     const parsed = parseJsonLenient(rawPayload);
-    const finding = findingPayloadSchema.parse(parsed);
+    const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+    const normalizedFinding = {
+      hypothesis:
+        typeof record.hypothesis === 'string' && record.hypothesis.trim().length > 0
+          ? record.hypothesis.trim()
+          : `${agentId.replaceAll('_', ' ')} returned incomplete structured output for this event.`,
+      evidence:
+        Array.isArray(record.evidence) &&
+        record.evidence.some((entry) => typeof entry === 'string' && entry.trim().length > 0)
+          ? record.evidence
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0)
+          : ['The ADK model returned partial structured output, so this finding was normalized locally.'],
+      confidence:
+        typeof record.confidence === 'number'
+          ? clampConfidence(record.confidence)
+          : typeof record.confidence === 'string'
+            ? clampConfidence(Number(record.confidence))
+            : 0.15,
+      proposedRemediation:
+        typeof record.proposedRemediation === 'string' && record.proposedRemediation.trim().length > 0
+          ? record.proposedRemediation.trim()
+          : 'Inspect the referenced file or log and apply the smallest domain-appropriate fix before rerunning the pipeline.',
+    };
+    const finding = findingPayloadSchema.parse(normalizedFinding);
 
     return {
       findingId: randomUUID(),
@@ -992,7 +1017,6 @@ export function getAdkWorkflowSummary() {
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };
 }
-
 
 
 

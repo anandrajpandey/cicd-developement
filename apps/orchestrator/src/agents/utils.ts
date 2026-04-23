@@ -59,6 +59,19 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
 
+function defaultRemediationForAgent(agentId: AgentId): string {
+  switch (agentId) {
+    case 'build_analyzer':
+      return 'Inspect the failing build step and apply the smallest compile-time fix before rerunning the pipeline.';
+    case 'code_reviewer':
+      return 'Inspect the referenced source file and apply the smallest code-level fix that matches the failure signal.';
+    case 'test_analyzer':
+      return 'Inspect the failing test or fixture and update the assertion, mock, or setup to match the intended behavior.';
+    case 'dependency_checker':
+      return 'Inspect the package and workspace dependency graph, then restore the missing dependency or compatible version.';
+  }
+}
+
 function extractJsonObject(input: string): string {
   const startIndex = input.indexOf('{');
   const endIndex = input.lastIndexOf('}');
@@ -117,6 +130,60 @@ function escapeControlCharactersInJson(input: string): string {
 
 function parseJsonLenient(input: string): unknown {
   return JSON.parse(escapeControlCharactersInJson(extractJsonObject(input)));
+}
+
+function coerceFindingPayload(agentId: AgentId, parsed: unknown) {
+  const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  const hypothesis =
+    typeof record.hypothesis === 'string' && record.hypothesis.trim().length > 0
+      ? record.hypothesis.trim()
+      : `${agentId.replaceAll('_', ' ')} returned incomplete structured output for this event.`;
+  const evidence =
+    Array.isArray(record.evidence)
+      ? record.evidence
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+  const confidenceValue =
+    typeof record.confidence === 'number'
+      ? record.confidence
+      : typeof record.confidence === 'string'
+        ? Number(record.confidence)
+        : 0.15;
+  const proposedRemediation =
+    typeof record.proposedRemediation === 'string' && record.proposedRemediation.trim().length > 0
+      ? record.proposedRemediation.trim()
+      : defaultRemediationForAgent(agentId);
+
+  return {
+    hypothesis,
+    evidence:
+      evidence.length > 0
+        ? evidence
+        : ['The model returned partial structured output, so this finding was normalized locally.'],
+    confidence: clampConfidence(confidenceValue),
+    proposedRemediation,
+  };
+}
+
+function humanizeAgentError(reason: string): string {
+  if (
+    reason.includes('proposedRemediation') &&
+    reason.includes('String must contain at least 1 character')
+  ) {
+    return 'The model returned an incomplete finding without a concrete remediation.';
+  }
+
+  if (reason.includes('No JSON object found')) {
+    return 'The model returned unstructured text instead of JSON.';
+  }
+
+  if (reason.includes('Bad control character')) {
+    return 'The model returned malformed JSON content.';
+  }
+
+  return reason;
 }
 
 function clampConfidence(value: number): number {
@@ -441,7 +508,7 @@ function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string)
     findingId: randomUUID(),
     agentId,
     eventId: event.eventId,
-    hypothesis: `${agentId} could not complete analysis: ${reason}`,
+    hypothesis: `${agentId} could not complete analysis: ${humanizeAgentError(reason)}`,
     evidence: [
       `failureType=${event.failureType}`,
       `repository=${event.repository}`,
@@ -486,7 +553,7 @@ export async function analyzeWithPrompt(
     );
 
     const parsed = parseJsonLenient(response);
-    const finding = findingPayloadSchema.parse(parsed);
+    const finding = findingPayloadSchema.parse(coerceFindingPayload(agentId, parsed));
 
     return {
       findingId: randomUUID(),
@@ -509,7 +576,7 @@ export function createTimeoutFinding(agentId: AgentId, event: PipelineEvent): Ag
     agentId,
     eventId: event.eventId,
     hypothesis: 'TIMEOUT: agent did not respond within the Round 0 time limit.',
-    evidence: ['Round 0 analysis exceeded the 30 second timeout window.'],
+    evidence: ['Round 0 analysis exceeded the 45 second timeout window.'],
     confidence: 0,
     proposedRemediation: 'Retry the debate run or inspect the raw error log manually.',
   };
