@@ -42,37 +42,48 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/decisions/:id', async (request, reply) => {
     const { id } = decisionParamsSchema.parse(request.params);
 
-    const decisionRow = await db.query.decisions.findFirst({
-      where: (fields, operators) =>
-        operators.or(operators.eq(fields.decisionId, id), operators.eq(fields.eventId, id)),
+    let event = await db.query.pipelineEvents.findFirst({
+      where: (fields, operators) => operators.eq(fields.eventId, id),
     });
+    let targetEventId = id;
+    let decisionRow = null;
 
-    if (!decisionRow) {
-      return reply.status(404).send({
-        message: 'Decision not found.',
+    if (!event) {
+      decisionRow = await db.query.decisions.findFirst({
+        where: (fields, operators) => operators.eq(fields.decisionId, id),
+      });
+      if (!decisionRow) {
+        return reply.status(404).send({
+          message: 'Not found.',
+        });
+      }
+      targetEventId = decisionRow.eventId;
+      event = await db.query.pipelineEvents.findFirst({
+        where: (fields, operators) => operators.eq(fields.eventId, targetEventId),
+      });
+    } else {
+      decisionRow = await db.query.decisions.findFirst({
+        where: (fields, operators) => operators.eq(fields.eventId, id),
       });
     }
 
-    const [event, findingRows, challengeRows, rebuttalRows, approvalRows] = await Promise.all([
-      db.query.pipelineEvents.findFirst({
-        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
-      }),
+    const [findingRows, challengeRows, rebuttalRows, approvalRows] = await Promise.all([
       db.query.agentFindings.findMany({
-        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, targetEventId),
       }),
       db.query.challenges.findMany({
-        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, targetEventId),
       }),
       db.query.rebuttals.findMany({
-        where: (fields, operators) => operators.eq(fields.eventId, decisionRow.eventId),
+        where: (fields, operators) => operators.eq(fields.eventId, targetEventId),
       }),
       db.query.approvals.findMany({
-        where: (fields, operators) => operators.eq(fields.decisionId, id),
+        where: (fields, operators) => operators.eq(fields.decisionId, decisionRow?.decisionId ?? '00000000-0000-0000-0000-000000000000'),
       }),
     ]);
 
     return {
-      decision: decisionRow,
+      decision: decisionRow ?? null,
       event,
       findings: findingRows,
       challenges: challengeRows,

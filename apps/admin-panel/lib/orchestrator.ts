@@ -33,7 +33,7 @@ export interface DecisionDetail {
     recommendedAction: string;
     executionMeta: ExecutionMeta;
     createdAt: string;
-  };
+  } | null;
   event: {
     eventId: string;
     repository: string;
@@ -124,10 +124,8 @@ export async function listDecisions(): Promise<DecisionListItem[]> {
 export async function getDecision(id: string): Promise<DecisionDetail | null> {
   try {
     return await requestJson<DecisionDetail>(`/api/decisions/${id}`);
-  } catch {
-    return null;
-  }
-}
+    } catch (e) {
+      console.error('getDecision fetch failed:', e);
 
 export async function listApprovalQueue(): Promise<DecisionListItem[]> {
   try {
