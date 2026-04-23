@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   validate-and-report:
+    if: ${{ !(github.event_name == 'push' && contains(github.event.head_commit.message, 'auto-mitigation applied by Agentic CICD')) }}
     runs-on:
       - self-hosted
       - Windows

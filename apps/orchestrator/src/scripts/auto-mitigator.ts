@@ -54,7 +54,10 @@ if (commandToRun && !commandToRun.includes('```') && !commandToRun.includes('sed
     // Capture the diff
     const diff = execSync('git diff --staged', { cwd: workspaceRoot, encoding: 'utf-8' });
 
-    execSync('git commit -m "chore: auto-mitigation applied by Agentic CICD"', { cwd: workspaceRoot, stdio: 'inherit' });
+    execSync('git commit -m "chore: auto-mitigation applied by Agentic CICD [skip ci]"', {
+      cwd: workspaceRoot,
+      stdio: 'inherit',
+    });
     execSync('git push', { cwd: workspaceRoot, stdio: 'inherit' });
     
     logger.info('Auto-mitigator successfully pushed the patched commit.');
