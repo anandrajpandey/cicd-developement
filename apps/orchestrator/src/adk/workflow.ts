@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   BaseLlm,
+  FunctionTool,
   Gemini,
   InMemoryRunner,
   LLMRegistry,
@@ -22,6 +25,7 @@ import {
   type PipelineEvent,
   type Rebuttal,
 } from '@agentic-cicd/shared-types';
+import { z } from 'zod';
 
 import { loadEnv } from '../env.js';
 import { buildAgentPromptPayload, loadCodeContext, type CodeContextEntry } from '../agents/utils.js';
@@ -36,6 +40,37 @@ import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.j
 const PRIMARY_MODEL = 'groq/llama-3.1-8b-instant';
 const FALLBACK_MODEL = 'ollama/mistral:7b';
 const ADK_EXECUTION_TIMEOUT_MS = 60_000; // Increased to 60s for local LLM inference
+const ADK_TOOL_CALL_SCHEMA = z.object({
+  toolCall: z.object({
+    name: z.string().min(1),
+    args: z.record(z.string(), z.unknown()).default({}),
+  }),
+});
+const WORKSPACE_IGNORE_DIRS = new Set([
+  '.git',
+  '.next',
+  'node_modules',
+  'dist',
+  'coverage',
+  '.turbo',
+  '.idea',
+  '.vscode',
+  'drizzle',
+]);
+const TOOL_SEARCH_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json']);
+const TOOL_MAX_RESULTS = 6;
+const TOOL_MAX_FILE_BYTES = 32_000;
+const TOOL_MAX_WORKSPACE_FILES = 800;
+const REPO_ROOT = process.cwd();
+const SEARCH_WORKSPACE_INPUT_SCHEMA = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(10).optional(),
+});
+const READ_FILE_SNIPPET_INPUT_SCHEMA = z.object({
+  filePath: z.string().min(1),
+  startLine: z.number().int().min(1).optional(),
+  endLine: z.number().int().min(1).optional(),
+});
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
   evidence: true,
@@ -63,8 +98,235 @@ const roundZeroAgentIds = [
   'test_analyzer',
   'dependency_checker',
 ] as const satisfies readonly AgentId[];
+type ToolTraceLike = {
+  toolName: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+  timestamp?: number;
+};
 
 loadEnv();
+
+function clampLine(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.trunc(value as number));
+}
+
+function isWorkspaceIgnored(entryPath: string): boolean {
+  return entryPath
+    .split(path.sep)
+    .some((segment) => WORKSPACE_IGNORE_DIRS.has(segment));
+}
+
+function resolveWorkspacePath(candidatePath: string): string {
+  const sanitized = candidatePath.replace(/^\/+/, '').replace(/\\/g, path.sep);
+  const resolved = path.resolve(REPO_ROOT, sanitized);
+  const relative = path.relative(REPO_ROOT, resolved);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Path "${candidatePath}" is outside the workspace.`);
+  }
+
+  return resolved;
+}
+
+async function readWorkspaceFileSnippet(
+  filePath: string,
+  startLine?: number,
+  endLine?: number,
+): Promise<{
+  path: string;
+  startLine: number;
+  endLine: number;
+  snippet: string;
+}> {
+  const resolvedPath = resolveWorkspacePath(filePath);
+  const raw = await readFile(resolvedPath, 'utf8');
+  const lines = raw.split(/\r?\n/);
+  const safeStart = clampLine(startLine, 1);
+  const safeEnd = Math.max(safeStart, clampLine(endLine, safeStart + 24));
+  const boundedEnd = Math.min(lines.length, safeEnd);
+  const snippet = lines
+    .slice(safeStart - 1, boundedEnd)
+    .map((line, index) => `${safeStart + index}: ${line}`)
+    .join('\n')
+    .slice(0, TOOL_MAX_FILE_BYTES);
+
+  return {
+    path: path.relative(REPO_ROOT, resolvedPath).replace(/\\/g, '/'),
+    startLine: safeStart,
+    endLine: boundedEnd,
+    snippet,
+  };
+}
+
+async function listWorkspaceFiles(dir: string, acc: string[] = []): Promise<string[]> {
+  if (acc.length >= TOOL_MAX_WORKSPACE_FILES) {
+    return acc;
+  }
+
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (acc.length >= TOOL_MAX_WORKSPACE_FILES) {
+      break;
+    }
+
+    const fullPath = path.join(dir, entry.name);
+    const relative = path.relative(REPO_ROOT, fullPath);
+
+    if (isWorkspaceIgnored(relative)) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      await listWorkspaceFiles(fullPath, acc);
+      continue;
+    }
+
+    if (!TOOL_SEARCH_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+      continue;
+    }
+
+    acc.push(fullPath);
+  }
+
+  return acc;
+}
+
+async function searchWorkspace(
+  query: string,
+  limit = TOOL_MAX_RESULTS,
+): Promise<
+  Array<{
+    path: string;
+    snippet: string;
+  }>
+> {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const files = await listWorkspaceFiles(REPO_ROOT);
+  const matches: Array<{ path: string; snippet: string; score: number }> = [];
+
+  for (const fullPath of files) {
+    if (matches.length >= limit * 3) {
+      break;
+    }
+
+    const relative = path.relative(REPO_ROOT, fullPath).replace(/\\/g, '/');
+    const content = await readFile(fullPath, 'utf8');
+    const haystack = `${relative}\n${content}`.toLowerCase();
+    const index = haystack.indexOf(normalizedQuery);
+
+    if (index === -1) {
+      continue;
+    }
+
+    const snippetStart = Math.max(0, index - 140);
+    const snippetEnd = Math.min(content.length, index + normalizedQuery.length + 220);
+    matches.push({
+      path: relative,
+      snippet: content.slice(snippetStart, snippetEnd).trim(),
+      score: index,
+    });
+  }
+
+  return matches
+    .sort((left, right) => left.score - right.score)
+    .slice(0, limit)
+    .map(({ path: filePath, snippet }) => ({
+      path: filePath,
+      snippet,
+    }));
+}
+
+function buildToolPrompt(tools: Iterable<unknown>): string {
+  const toolLines = [...tools]
+    .flatMap((tool) => {
+      if (!tool || typeof tool !== 'object') {
+        return [];
+      }
+
+      const candidate = tool as { name?: string; description?: string; _getDeclaration?: () => unknown };
+      const declaration =
+        typeof candidate._getDeclaration === 'function' ? candidate._getDeclaration() : undefined;
+      const name =
+        typeof candidate.name === 'string' && candidate.name.length > 0
+          ? candidate.name
+          : declaration && typeof declaration === 'object' && declaration && 'name' in declaration
+            ? String((declaration as { name?: unknown }).name ?? '')
+            : '';
+      const description =
+        declaration && typeof declaration === 'object' && declaration && 'description' in declaration
+          ? String((declaration as { description?: unknown }).description ?? '')
+          : candidate.description ?? '';
+      const parameters =
+        declaration && typeof declaration === 'object' && declaration && 'parameters' in declaration
+          ? JSON.stringify((declaration as { parameters?: unknown }).parameters ?? {}, null, 2)
+          : '{}';
+
+      if (!name) {
+        return [];
+      }
+
+      return [`- ${name}: ${description}\n  Parameters schema: ${parameters}`];
+    })
+    .join('\n');
+
+  if (!toolLines) {
+    return '';
+  }
+
+  return `\nAvailable tools:\n${toolLines}
+
+Tool-use protocol:
+- If you need workspace inspection, respond with JSON only in this shape:
+  {"toolCall":{"name":"tool_name","args":{"key":"value"}}}
+- Call at most one tool per response.
+- After tool results are provided, continue your reasoning and either call another tool or produce the final answer in the original required format.
+- Do not invent tool names or arguments outside the provided schemas.`;
+}
+
+function serializeAdkParts(parts: Array<Record<string, unknown>> | undefined): string {
+  if (!parts) {
+    return '';
+  }
+
+  return parts
+    .map((part) => {
+      if (typeof part.text === 'string') {
+        return part.text;
+      }
+
+      if (part.functionResponse && typeof part.functionResponse === 'object') {
+        const response = part.functionResponse as {
+          name?: string;
+          response?: unknown;
+        };
+
+        return `[tool_result:${response.name ?? 'unknown'}]\n${JSON.stringify(response.response ?? {}, null, 2)}`;
+      }
+
+      if (part.functionCall && typeof part.functionCall === 'object') {
+        const call = part.functionCall as {
+          name?: string;
+          args?: unknown;
+        };
+
+        return `[tool_call:${call.name ?? 'unknown'}]\n${JSON.stringify(call.args ?? {}, null, 2)}`;
+      }
+
+      return '';
+    })
+    .filter((value) => value.trim().length > 0)
+    .join('\n\n');
+}
 
 class GroqBridgeLlm extends BaseLlm {
   static supportedModels = [/^groq\/.+$/, /^ollama\/.+$/];
@@ -77,10 +339,12 @@ class GroqBridgeLlm extends BaseLlm {
 
     const model = request.model ?? this.model;
     const normalizedModel = model.replace(/^(groq|ollama)\//, '');
+    const toolPrompt = buildToolPrompt(Object.values(request.toolsDict ?? {}));
     const systemInstruction =
       typeof request.config?.systemInstruction === 'string'
-        ? request.config.systemInstruction.trim()
-        : '';
+        ? `${request.config.systemInstruction.trim()}${toolPrompt}`.trim()
+        : toolPrompt.trim()
+      ;
 
     const systemMessages: ChatMessage[] = systemInstruction
       ? [
@@ -95,10 +359,7 @@ class GroqBridgeLlm extends BaseLlm {
       const role: ChatMessage['role'] =
         content.role === 'model' ? 'assistant' : content.role === 'user' ? 'user' : 'system';
 
-      const text = (content.parts ?? [])
-        .map((part) => (typeof part.text === 'string' ? part.text : ''))
-        .join('\n')
-        .trim();
+      const text = serializeAdkParts((content.parts ?? []) as Array<Record<string, unknown>>).trim();
 
       if (!text) {
         return [];
@@ -113,6 +374,25 @@ class GroqBridgeLlm extends BaseLlm {
     });
 
     const response = await chat([...systemMessages, ...messages], normalizedModel);
+    const toolCall = ADK_TOOL_CALL_SCHEMA.safeParse(parseToolCallCandidate(response));
+
+    if (toolCall.success && request.toolsDict?.[toolCall.data.toolCall.name]) {
+      yield {
+        content: {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: randomUUID(),
+                name: toolCall.data.toolCall.name,
+                args: toolCall.data.toolCall.args,
+              },
+            },
+          ],
+        },
+      };
+      return;
+    }
 
     yield {
       content: {
@@ -126,6 +406,14 @@ class GroqBridgeLlm extends BaseLlm {
     _request: Parameters<Gemini['connect']>[0],
   ): ReturnType<Gemini['connect']> {
     throw new Error('GroqBridgeLlm does not support live ADK connections in this MVP.');
+  }
+}
+
+function parseToolCallCandidate(input: string): unknown {
+  try {
+    return parseJsonLenient(input);
+  } catch {
+    return null;
   }
 }
 
@@ -155,6 +443,8 @@ Rules:
 - Evidence must contain at least one concrete point from the event.
 - If codeContext is present, use it directly and cite the actual file path.
 - Prefer a patch-like remediation over a summary.
+- Use workspace tools when the failing file, symbol, or import path is unclear.
+- If the input mentions a file path, import path, package name, or module name, call at least one workspace tool before producing the final answer.
 - When possible, write proposedRemediation in this style:
   File: path/to/file
   Change:
@@ -174,6 +464,8 @@ Respond with JSON only in this shape:
 Rules:
 - Reasoning should synthesize the strongest findings and rebuttal-adjusted confidence.
 - recommendedAction should be concise, actionable, and grounded in files already present in the event, codeContext, or findings.
+- Use workspace tools when you need to confirm a file path or inspect the referenced code before recommending edits.
+- If the event, findings, or remediations mention a file path or import target, call at least one workspace tool before producing the final answer.
 - Never invent file paths, languages, modules, or frameworks that do not appear in the input.
 - Prefer a numbered list of concrete edits when the findings support it.
 - Do not include markdown fences or extra commentary.`;
@@ -264,6 +556,8 @@ or JSON only in this shape:
 Rules:
 - Never target yourself.
 - Prefer challenging findings that introduce unsupported evidence, contradict the raw log, or use high confidence with weak grounding.
+- Use workspace tools when you need to inspect the referenced file before deciding whether another finding is unsupported.
+- If any finding references a concrete file path or import target, call at least one workspace tool before deciding.
 - If another finding is clearly outside its domain or invents facts not present in the event, challenge it.
 - Evidence must contain at least one concrete point.
 - Confidence must be between 0 and 1.
@@ -282,10 +576,55 @@ Respond with JSON only in this shape:
 
 Rules:
 - position must be one of DEFEND, CONCEDE, or COMPROMISE.
+- Use workspace tools if you need to inspect a referenced file before defending or conceding.
+- If the challenge or your finding references a concrete file path or import target, call at least one workspace tool before deciding.
 - updatedConfidence must be between 0 and 1.
 - rebuttalFactor must be between 0 and 1, reflecting how much of the original confidence remains or how impactful the rebuttal is.
 - Do not include markdown fences or extra commentary.`;
 }
+
+const searchWorkspaceTool = new FunctionTool({
+  name: 'search_workspace',
+  description:
+    'Search the local repository for a filename, import path, symbol, or log token and return matching files with short snippets.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      limit: { type: 'number' },
+    },
+    required: ['query'],
+  } as never,
+  execute: async (input) => {
+    const { query, limit } = SEARCH_WORKSPACE_INPUT_SCHEMA.parse(input);
+    const results = await searchWorkspace(query, limit);
+    return {
+      query,
+      results,
+    };
+  },
+});
+
+const readFileSnippetTool = new FunctionTool({
+  name: 'read_file_snippet',
+  description:
+    'Read a specific workspace file and return a bounded line-numbered snippet for grounded code review.',
+  parameters: {
+    type: 'object',
+    properties: {
+      filePath: { type: 'string' },
+      startLine: { type: 'number' },
+      endLine: { type: 'number' },
+    },
+    required: ['filePath'],
+  } as never,
+  execute: async (input) => {
+    const { filePath, startLine, endLine } = READ_FILE_SNIPPET_INPUT_SCHEMA.parse(input);
+    return await readWorkspaceFileSnippet(filePath, startLine, endLine);
+  },
+});
+
+const repoInspectionTools = [searchWorkspaceTool, readFileSnippetTool];
 
 export const buildAnalyzerAdkAgent = new LlmAgent({
   name: 'build_analyzer',
@@ -293,6 +632,7 @@ export const buildAnalyzerAdkAgent = new LlmAgent({
   description: 'Analyzes build failures, compiler issues, and runtime mismatch problems.',
   instruction: withFallbackNote(withFindingOutputRules(buildAnalyzerPrompt)),
   outputKey: 'build_analyzer_finding',
+  tools: repoInspectionTools,
 });
 
 export const codeReviewerAdkAgent = new LlmAgent({
@@ -301,6 +641,7 @@ export const codeReviewerAdkAgent = new LlmAgent({
   description: 'Inspects code-quality and logic-level causes behind pipeline failures.',
   instruction: withFallbackNote(withFindingOutputRules(codeReviewerPrompt)),
   outputKey: 'code_reviewer_finding',
+  tools: repoInspectionTools,
 });
 
 export const testAnalyzerAdkAgent = new LlmAgent({
@@ -309,6 +650,7 @@ export const testAnalyzerAdkAgent = new LlmAgent({
   description: 'Investigates regression, flaky test, and test setup causes.',
   instruction: withFallbackNote(withFindingOutputRules(testAnalyzerPrompt)),
   outputKey: 'test_analyzer_finding',
+  tools: repoInspectionTools,
 });
 
 export const dependencyCheckerAdkAgent = new LlmAgent({
@@ -317,6 +659,7 @@ export const dependencyCheckerAdkAgent = new LlmAgent({
   description: 'Checks dependency conflicts, missing packages, and version breakage.',
   instruction: withFallbackNote(withFindingOutputRules(dependencyCheckerPrompt)),
   outputKey: 'dependency_checker_finding',
+  tools: repoInspectionTools,
 });
 
 export const crossChallengeAdkAgent = new LlmAgent({
@@ -327,6 +670,7 @@ export const crossChallengeAdkAgent = new LlmAgent({
       withChallengeOutputRules(crossChallengePrompt),
     ),
     outputKey: 'cross_challenge_result',
+    tools: repoInspectionTools,
   });
 
   export const rebuttalAdkAgent = new LlmAgent({
@@ -337,6 +681,7 @@ export const crossChallengeAdkAgent = new LlmAgent({
       withRebuttalOutputRules(rebuttalPrompt),
     ),
     outputKey: 'rebuttal_result',
+    tools: repoInspectionTools,
   });
 
   export const judgeAdkAgent = new LlmAgent({
@@ -345,6 +690,7 @@ export const crossChallengeAdkAgent = new LlmAgent({
   description: 'Synthesizes final reasoning, score interpretation, and recommended action.',
   instruction: withFallbackNote(withJudgeOutputRules(judgePrompt)),
   outputKey: 'judge_decision',
+  tools: repoInspectionTools,
 });
 
 export const roundZeroParallelAdkAgent = new ParallelAgent({
@@ -504,7 +850,8 @@ function createAdkFailureFinding(
     confidence: 0,
     proposedRemediation:
       'Fall back to native agent analysis or inspect the raw error log manually.',
-  };
+    toolTrace: [],
+  } as AgentFinding;
 }
 
 function extractStateDeltaValue(event: unknown, key: string): string | null {
@@ -529,6 +876,7 @@ function parseAdkFinding(
   agentId: AgentId,
   event: PipelineEvent,
   rawPayload: string | null,
+  toolTrace: ToolTraceLike[] = [],
 ): AgentFinding {
   if (!rawPayload) {
     return createAdkFailureFinding(agentId, event, 'No ADK finding payload was returned.');
@@ -571,11 +919,123 @@ function parseAdkFinding(
       evidence: finding.evidence,
       confidence: clampConfidence(finding.confidence),
       proposedRemediation: finding.proposedRemediation,
-    };
+      toolTrace,
+    } as AgentFinding;
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown ADK finding parse error.';
     return createAdkFailureFinding(agentId, event, reason);
   }
+}
+
+function toToolTraceResult(result: unknown): unknown {
+  if (
+    result &&
+    typeof result === 'object' &&
+    'snippet' in result &&
+    typeof (result as { snippet?: unknown }).snippet === 'string'
+  ) {
+    const value = result as {
+      path?: unknown;
+      startLine?: unknown;
+      endLine?: unknown;
+      snippet?: string;
+    };
+
+    return {
+      path: value.path,
+      startLine: value.startLine,
+      endLine: value.endLine,
+      snippet: value.snippet?.slice(0, 600),
+    };
+  }
+
+  if (
+    result &&
+    typeof result === 'object' &&
+    'results' in result &&
+    Array.isArray((result as { results?: unknown }).results)
+  ) {
+    const value = result as {
+      query?: unknown;
+      results: Array<{ path?: unknown; snippet?: unknown }>;
+    };
+
+    return {
+      query: value.query,
+      results: value.results.slice(0, 4).map((entry) => ({
+        path: entry.path,
+        snippet:
+          typeof entry.snippet === 'string' ? entry.snippet.slice(0, 220) : entry.snippet,
+      })),
+    };
+  }
+
+  return result;
+}
+
+function extractToolTraceForAuthor(events: unknown[], author: string): ToolTraceLike[] {
+  const calls = new Map<string, { toolName: string; args: Record<string, unknown>; timestamp?: number }>();
+  const traces: ToolTraceLike[] = [];
+
+  for (const event of events) {
+    if (!event || typeof event !== 'object') {
+      continue;
+    }
+
+    const candidate = event as {
+      author?: unknown;
+      timestamp?: unknown;
+      content?: { parts?: Array<Record<string, unknown>> };
+    };
+
+    if (candidate.author !== author || !Array.isArray(candidate.content?.parts)) {
+      continue;
+    }
+
+    for (const part of candidate.content.parts) {
+      if (part.functionCall && typeof part.functionCall === 'object') {
+        const functionCall = part.functionCall as {
+          id?: unknown;
+          name?: unknown;
+          args?: unknown;
+        };
+
+        if (typeof functionCall.id === 'string' && typeof functionCall.name === 'string') {
+          calls.set(functionCall.id, {
+            toolName: functionCall.name,
+            args:
+              functionCall.args && typeof functionCall.args === 'object'
+                ? (functionCall.args as Record<string, unknown>)
+                : {},
+            timestamp: typeof candidate.timestamp === 'number' ? candidate.timestamp : undefined,
+          });
+        }
+      }
+
+      if (part.functionResponse && typeof part.functionResponse === 'object') {
+        const functionResponse = part.functionResponse as {
+          id?: unknown;
+          name?: unknown;
+          response?: unknown;
+        };
+
+        const call =
+          typeof functionResponse.id === 'string' ? calls.get(functionResponse.id) : undefined;
+        const toolName =
+          call?.toolName ??
+          (typeof functionResponse.name === 'string' ? functionResponse.name : 'unknown_tool');
+
+        traces.push({
+          toolName,
+          args: call?.args ?? {},
+          result: toToolTraceResult(functionResponse.response),
+          timestamp: typeof candidate.timestamp === 'number' ? candidate.timestamp : call?.timestamp,
+        });
+      }
+    }
+  }
+
+  return traces;
 }
 
 export function normalizeAdkRoundZeroFindings(
@@ -768,6 +1228,7 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
             }),
             `${agentId}_finding`,
           ),
+          extractToolTraceForAuthor(events, agentId),
         ),
       );
 
@@ -1019,5 +1480,3 @@ export function getAdkWorkflowSummary() {
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };
 }
-
-

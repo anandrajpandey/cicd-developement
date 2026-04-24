@@ -104,6 +104,7 @@ async function persistFindings(findings: AgentFinding[], eventId: string): Promi
       evidence: finding.evidence,
       confidence: finding.confidence,
       proposedRemediation: finding.proposedRemediation,
+      toolTrace: (finding as AgentFinding & { toolTrace?: unknown }).toolTrace,
       timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
     })),
   );

@@ -118,6 +118,12 @@ export interface DecisionDetail {
     evidence: string[];
     confidence: number;
     proposedRemediation: string;
+    toolTrace?: Array<{
+      toolName: string;
+      args?: Record<string, unknown>;
+      result?: unknown;
+      timestamp?: number;
+    }>;
     timedOut?: boolean;
   }>;
   challenges: Array<{

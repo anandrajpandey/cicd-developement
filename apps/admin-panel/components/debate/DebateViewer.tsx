@@ -39,6 +39,7 @@ function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding {
     evidence: finding.evidence,
     confidence: finding.confidence,
     proposedRemediation: finding.proposedRemediation,
+    toolTrace: finding.toolTrace,
   };
 }
 
@@ -138,6 +139,18 @@ function buildConfidenceMap(
   }
 
   return base;
+}
+
+function stringifyToolPayload(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 export function DebateViewer({
@@ -578,6 +591,36 @@ export function DebateViewer({
                             <p className="text-[10px] uppercase text-mist/50 font-bold tracking-widest mb-1 border-b border-white/10 pb-1 inline-block">Proposed Mitigation</p>
                             <pre className="mt-1 text-xs text-mist/80 font-mono bg-black/20 p-3 rounded-lg break-words whitespace-pre-wrap">{displayedFindings.find((f) => f.agentId === hoveredNode)?.proposedRemediation}</pre>
                         </div>
+                        {(displayedFindings.find((f) => f.agentId === hoveredNode)?.toolTrace?.length ?? 0) > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase text-cyan-400 font-bold tracking-widest mb-1 border-b border-cyan-400/20 pb-1 inline-block">Tool Trace</p>
+                            <div className="mt-2 space-y-3">
+                              {displayedFindings.find((f) => f.agentId === hoveredNode)?.toolTrace?.map((trace, index) => (
+                                <div
+                                  key={`${trace.toolName}-${trace.timestamp ?? index}`}
+                                  className="rounded-xl border border-cyan-400/10 bg-cyan-500/5 p-3"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="text-[10px] uppercase tracking-widest text-cyan-300 font-bold">
+                                      {trace.toolName.replaceAll('_', ' ')}
+                                    </p>
+                                    {trace.timestamp ? (
+                                      <p className="text-[10px] font-mono text-mist/45">
+                                        {new Date(trace.timestamp).toLocaleTimeString()}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <pre className="mt-2 text-[11px] text-mist/65 font-mono whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2">
+                                    {stringifyToolPayload(trace.args ?? {})}
+                                  </pre>
+                                  <pre className="mt-2 text-[11px] text-white/80 font-mono whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2">
+                                    {stringifyToolPayload(trace.result ?? {})}
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

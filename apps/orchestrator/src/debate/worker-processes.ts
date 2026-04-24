@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { PipelineEvent } from '@agentic-cicd/shared-types';
 
 import { logger } from '../logger.js';
+import { runDebate } from './run-debate.js';
 import {
   getEventRuntimeStatus,
   markEventCancelled,
@@ -17,10 +18,35 @@ const debateWorkers = new Map<string, ChildProcess>();
 export function startDebateWorker(event: PipelineEvent): void {
   markEventRunning(event.eventId);
 
-  const payload = Buffer.from(JSON.stringify(event), 'utf8').toString('base64');
-  const child = fork(debateWorkerPath, [payload], {
-    stdio: 'ignore',
-  });
+  let child: ChildProcess;
+  try {
+    const payload = Buffer.from(JSON.stringify(event), 'utf8').toString('base64');
+    child = fork(debateWorkerPath, [payload], {
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    logger.warn('Falling back to in-process debate execution.', {
+      eventId: event.eventId,
+      error,
+    });
+
+    void runDebate(event)
+      .then(() => {
+        markEventCompleted(event.eventId);
+        logger.info('In-process debate execution completed.', {
+          eventId: event.eventId,
+        });
+      })
+      .catch((runError) => {
+        markEventCompleted(event.eventId);
+        logger.error('In-process debate execution failed.', {
+          eventId: event.eventId,
+          error: runError,
+        });
+      });
+
+    return;
+  }
 
   debateWorkers.set(event.eventId, child);
 
@@ -79,4 +105,3 @@ export function cancelDebateWorker(eventId: string): boolean {
   debateWorkers.delete(eventId);
   return cancelled;
 }
-

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { ArrowRight, Flame, ShieldAlert, Waves, Github } from 'lucide-react';
+import { ArrowRight, Flame, ShieldAlert, Waves, Github, GitBranch } from 'lucide-react';
 
 import { ExecutionPathStrip, getAdkCoverage } from '../components/execution-path-strip';
 import { LiveCommitBanner } from '../components/live-commit-banner';
@@ -87,12 +87,12 @@ export default async function DashboardPage() {
             </div>
             <div className="metric-card">
               <div className="flex items-center gap-3">
-                <ShieldAlert className="h-5 w-5 text-mint" />
-                <span className="text-sm text-mist/70">AI-Assisted Resolutions</span>
+                <GitBranch className="h-5 w-5 text-mint" />
+                <span className="text-sm text-mist/70">Contested Debates</span>
               </div>
-              <div className="mt-4 text-4xl font-semibold text-white">{summary.adkDominant}</div>
+              <div className="mt-4 text-4xl font-semibold text-white">{summary.contestedDebates}</div>
               <div className="mt-3 text-xs text-mist/60">
-                {summary.fallbackTouched} incidents handled cleanly
+                {summary.activeWorkflows} workflows still live
               </div>
             </div>
             <div className="metric-card">

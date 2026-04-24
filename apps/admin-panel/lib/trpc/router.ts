@@ -46,18 +46,20 @@ export const appRouter = t.router({
     timestamp: new Date().toISOString(),
   })),
   dashboardSummary: t.procedure.query(async () => {
-    const [decisions, approvals] = await Promise.all([listDecisions(), listApprovalQueue()]);
+    const [decisions, approvals, workflows] = await Promise.all([
+      listDecisions(),
+      listApprovalQueue(),
+      listWorkflows(),
+    ]);
 
     const totalEvents = decisions.length;
     const low = decisions.filter((item) => item.riskTier === 'LOW').length;
     const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
     const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
-    const adkDominant = decisions.filter((item) =>
-      Object.values(item.executionMeta).every((source) => source === 'ADK'),
+    const activeWorkflows = workflows.filter(
+      (item) => item.status !== 'JUDGED' && item.status !== 'CANCELLED',
     ).length;
-    const fallbackTouched = decisions.filter((item) =>
-      Object.values(item.executionMeta).some((source) => source === 'NATIVE'),
-    ).length;
+    const contestedDebates = workflows.filter((item) => (item.counts?.challenges ?? 0) > 0).length;
     const avgCompositeScore =
       totalEvents === 0
         ? 0
@@ -70,8 +72,8 @@ export const appRouter = t.router({
       low,
       medium,
       high,
-      adkDominant,
-      fallbackTouched,
+      activeWorkflows,
+      contestedDebates,
     };
   }),
   decisionByEventId: t.procedure.input(z.string().uuid()).query(async ({ input }) => {

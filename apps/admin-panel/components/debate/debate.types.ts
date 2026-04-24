@@ -24,6 +24,12 @@ export interface AgentFinding {
   evidence: string[]
   confidence: number        // 0.0 - 1.0
   proposedRemediation: string
+  toolTrace?: Array<{
+    toolName: string
+    args?: Record<string, unknown>
+    result?: unknown
+    timestamp?: number
+  }>
 }
 
 export interface Challenge {
