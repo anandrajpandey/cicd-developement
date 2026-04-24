@@ -21,7 +21,12 @@ import {
   dependencyCheckerAgent,
   testAnalyzerAgent,
 } from '../agents/index.js';
-import { createTimeoutFinding, fallbackDecision, isElevatedRiskPayload } from '../agents/utils.js';
+import {
+  createTimeoutFinding,
+  fallbackDecision,
+  isElevatedRiskPayload,
+  isLowRiskLintPayload,
+} from '../agents/utils.js';
 
 import { logger } from '../logger.js';
 import { applyAutoMitigationLocally } from '../scripts/auto-mitigator.js';
@@ -570,13 +575,13 @@ export async function runInitialAnalysis(
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<AgentFinding[]>> {
   const elevatedRiskPayload = isElevatedRiskPayload(event);
-  const shouldBypassAdkRoundZero = elevatedRiskPayload;
+  const shouldBypassAdkRoundZero = elevatedRiskPayload || isLowRiskLintPayload(event);
 
   const adkRoundZero = shouldBypassAdkRoundZero
     ? {
         status: 'failed' as const,
         findings: [] as AgentFinding[],
-        errorMessage: 'Skipped ADK round zero for elevated-risk payload to avoid provider saturation.',
+        errorMessage: 'Skipped ADK round zero for this payload to keep analysis responsive.',
       }
     : await executeAdkRoundZero(event);
 

@@ -360,6 +360,26 @@ export function isElevatedRiskPayload(
   );
 }
 
+export function isLowRiskLintPayload(
+  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
+): boolean {
+  const failureType = event.failureType.toLowerCase();
+  const errorLog = event.errorLog.toLowerCase();
+
+  if (!failureType.includes('lint')) {
+    return false;
+  }
+
+  return (
+    errorLog.includes('eslint') ||
+    errorLog.includes('prettier') ||
+    errorLog.includes('lint/') ||
+    errorLog.includes('no-unescaped-entities') ||
+    errorLog.includes('unexpected') ||
+    errorLog.includes('format')
+  );
+}
+
 export function buildAgentPromptPayload(
   event: PipelineEvent,
   codeContext: CodeContextEntry[],
@@ -618,6 +638,35 @@ export async function analyzeWithPrompt(
   prompt: string,
   event: PipelineEvent,
 ): Promise<AgentFinding> {
+  if (
+    isLowRiskLintPayload(event) &&
+    (agentId === 'test_analyzer' || agentId === 'dependency_checker')
+  ) {
+    const hypothesis =
+      agentId === 'test_analyzer'
+        ? 'The failure is a lint-only issue, not a test regression, so no test-specific root cause is indicated.'
+        : 'The failure is a lint-only issue, so there is no concrete dependency conflict or package breakage signal in the log.';
+
+    const proposedRemediation =
+      agentId === 'test_analyzer'
+        ? 'No test fix is needed yet. Resolve the lint violation first, then rerun the pipeline to confirm tests remain healthy.'
+        : 'No dependency change is needed yet. Fix the lint violation in the referenced file before changing package versions or workspace links.';
+
+    return {
+      findingId: randomUUID(),
+      agentId,
+      eventId: event.eventId,
+      hypothesis,
+      evidence: [
+        `failureType=${event.failureType}`,
+        'The error log only references linting/formatting violations.',
+        'No failing test, stack trace, or dependency-resolution error is present.',
+      ],
+      confidence: 0.18,
+      proposedRemediation,
+    };
+  }
+
   const codeContext = await loadCodeContext(event);
   const userMessage = JSON.stringify(buildAgentPromptPayload(event, codeContext), null, 2);
 
