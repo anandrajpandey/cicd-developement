@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { io } from 'socket.io-client';
@@ -121,6 +121,25 @@ function hydrateStatuses(
   return statuses;
 }
 
+function buildConfidenceMap(
+  findings: AgentFinding[],
+  rebuttalMap: Partial<Record<AgentId, Rebuttal>>,
+): Partial<Record<AgentId, number>> {
+  const base = Object.fromEntries(findings.map((finding) => [finding.agentId, finding.confidence])) as Partial<
+    Record<AgentId, number>
+  >;
+
+  for (const [agentId, rebuttal] of Object.entries(rebuttalMap) as Array<[AgentId, Rebuttal | undefined]>) {
+    if (!rebuttal) {
+      continue;
+    }
+
+    base[agentId] = rebuttal.updatedConfidence;
+  }
+
+  return base;
+}
+
 export function DebateViewer({
   eventId,
   initialData,
@@ -162,7 +181,7 @@ export function DebateViewer({
     hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
   );
   const [confidences, setConfidences] = useState<Partial<Record<AgentId, number>>>(() =>
-    Object.fromEntries(initialFindings.map((finding) => [finding.agentId, finding.confidence])),
+    buildConfidenceMap(initialFindings, initialRebuttals),
   );
   const [findings, setFindings] = useState<AgentFinding[]>(initialFindings);    
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges); 
@@ -172,6 +191,18 @@ export function DebateViewer({
   const [isCancelled, setIsCancelled] = useState(initialData?.runtimeStatus === 'CANCELLED');
   
   const [hoveredNode, setHoveredNode] = useState<AgentId | null>(null);
+  const findingsRef = useRef<AgentFinding[]>(initialFindings);
+  const challengesRef = useRef<Challenge[]>(initialChallenges);
+  const rebuttalsRef = useRef<Partial<Record<AgentId, Rebuttal>>>(initialRebuttals);
+
+  function getDisplayedConfidence(agentId: AgentId) {
+    const rebuttal = rebuttals[agentId];
+    if (rebuttal) {
+      return rebuttal.updatedConfidence;
+    }
+
+    return findings.find((finding) => finding.agentId === agentId)?.confidence ?? 0;
+  }
 
   const setStatus = (agentId: AgentId, status: AgentStatus) =>
     setStatuses((state) => ({ ...state, [agentId]: status }));
@@ -181,14 +212,15 @@ export function DebateViewer({
     setStatuses(
       hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
     );
-    setConfidences(
-      Object.fromEntries(initialFindings.map((finding) => [finding.agentId, finding.confidence])),
-    );
+    setConfidences(buildConfidenceMap(initialFindings, initialRebuttals));
     setFindings(initialFindings);
     setChallenges(initialChallenges);
     setRebuttals(initialRebuttals);
     setDecision(initialDecision);
     setIsCancelled(initialData?.runtimeStatus === 'CANCELLED');
+    findingsRef.current = initialFindings;
+    challengesRef.current = initialChallenges;
+    rebuttalsRef.current = initialRebuttals;
   }, [eventId, initialChallenges, initialDecision, initialFindings, initialRebuttals]);
 
   useEffect(() => {
@@ -242,7 +274,9 @@ export function DebateViewer({
           if (state.some((entry) => entry.findingId === finding.findingId)) {   
             return state;
           }
-          return [...state, finding];
+          const next = [...state, finding];
+          findingsRef.current = next;
+          return next;
         });
         setConfidences((state) => ({ ...state, [agentId]: finding.confidence }));
         setStatus(agentId, 'finding_ready');
@@ -262,6 +296,7 @@ export function DebateViewer({
         setLiveRound(1);
         if (incomingFindings?.length) {
           setFindings(incomingFindings);
+          findingsRef.current = incomingFindings;
           setConfidences(
             Object.fromEntries(
               incomingFindings.map((finding) => [finding.agentId, finding.confidence]),
@@ -281,7 +316,9 @@ export function DebateViewer({
           if (state.some((entry) => entry.challengeId === challenge.challengeId)) {
             return state;
           }
-          return [...state, challenge];
+          const next = [...state, challenge];
+          challengesRef.current = next;
+          return next;
         });
         setStatus(challenge.challengerAgentId, 'challenging');
       },
@@ -300,6 +337,7 @@ export function DebateViewer({
         setLiveRound(2);
         if (incomingChallenges) {
           setChallenges(incomingChallenges);
+          challengesRef.current = incomingChallenges;
         }
       },
     );
@@ -308,7 +346,11 @@ export function DebateViewer({
       'round:2:rebuttal',
       ({ eventId: incomingEventId, rebuttal }: { eventId: string; rebuttal: Rebuttal }) => {
         if (incomingEventId !== eventId) return;
-        setRebuttals((state) => ({ ...state, [rebuttal.respondingAgentId]: rebuttal }));
+        setRebuttals((state) => {
+          const next = { ...state, [rebuttal.respondingAgentId]: rebuttal };
+          rebuttalsRef.current = next;
+          return next;
+        });
         setConfidences((state) => ({
           ...state,
           [rebuttal.respondingAgentId]: rebuttal.updatedConfidence,
@@ -340,6 +382,16 @@ export function DebateViewer({
             }),
           ) as Partial<Record<AgentId, Rebuttal>>;
           setRebuttals(mapped);
+          rebuttalsRef.current = mapped;
+          setConfidences((state) => ({
+            ...state,
+            ...Object.fromEntries(
+              Object.entries(mapped).map(([agentId, rebuttal]) => [
+                agentId,
+                rebuttal?.updatedConfidence,
+              ]),
+            ),
+          }));
         }
       },
     );
@@ -360,7 +412,7 @@ export function DebateViewer({
           return;
         }
         setDecision(normalized);
-        setStatuses(DEFAULT_STATUSES);
+        setStatuses(hydrateStatuses(findingsRef.current, challengesRef.current, rebuttalsRef.current, normalized));
       },
     );
 
@@ -432,6 +484,7 @@ export function DebateViewer({
             <DebateGraph
             statuses={statuses}
             confidences={confidences}
+            baselineConfidences={Object.fromEntries(findings.map((finding) => [finding.agentId, finding.confidence]))}
             challenges={displayedChallenges}
             rebuttals={displayedRebuttals}
             onHoverNode={setHoveredNode}
@@ -493,7 +546,20 @@ export function DebateViewer({
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                          <div className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold tracking-wider">Analysis Finding</div>
-                         <div className="text-xl font-mono text-white/90">{Math.round((displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0) * 100)}% <span className="text-xs text-mist/50">Conf.</span></div>
+                         <div className="flex items-center gap-2 text-xl font-mono text-white/90">
+                           {displayedRebuttals[hoveredNode as AgentId] &&
+                           displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence <
+                             (displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0) ? (
+                             <span className="text-sm text-red-300">
+                               {Math.round(
+                                 (displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence -
+                                   (displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0)) *
+                                   100,
+                               )}%
+                             </span>
+                           ) : null}
+                           <span>{Math.round(getDisplayedConfidence(hoveredNode as AgentId) * 100)}% <span className="text-xs text-mist/50">Conf.</span></span>
+                         </div>
                       </div>
                       <div className="bg-white/5 p-4 rounded-xl space-y-4">
                         <div>

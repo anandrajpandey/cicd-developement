@@ -16,6 +16,14 @@ const decisionParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+const WORKFLOW_AGENTS = [
+  'build_analyzer',
+  'code_reviewer',
+  'test_analyzer',
+  'dependency_checker',
+  'judge',
+] as const;
+
 export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/workflows', async () => {
     const events = await db.query.pipelineEvents.findMany({
@@ -70,6 +78,39 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
         latestRebuttal?.createdAt ??
         latestDecision?.createdAt ??
         null;
+      const agents = WORKFLOW_AGENTS.map((agentId) => {
+        if (agentId === 'judge') {
+          return {
+            agentId,
+            confidence: latestDecision?.compositeScore ?? null,
+            previousConfidence: null,
+            status: latestDecision ? 'judging' : 'idle',
+            rebuttalPosition: null,
+          };
+        }
+
+        const finding = event.findings.find((row) => row.agentId === agentId) ?? null;
+        const rebuttal = event.rebuttals.find((row) => row.respondingAgentId === agentId) ?? null;
+        const outgoingChallenge = event.challenges.find((row) => row.challengerAgentId === agentId) ?? null;
+
+        return {
+          agentId,
+          confidence: rebuttal?.updatedConfidence ?? finding?.confidence ?? null,
+          previousConfidence: finding?.confidence ?? null,
+          status: rebuttal
+            ? rebuttal.position === 'DEFEND'
+              ? 'defending'
+              : 'conceding'
+            : outgoingChallenge
+              ? 'challenging'
+              : finding
+                ? 'finding_ready'
+                : status === 'STARTED'
+                  ? 'idle'
+                  : 'analyzing',
+          rebuttalPosition: rebuttal?.position ?? null,
+        };
+      });
 
       return {
         eventId: event.eventId,
@@ -92,6 +133,7 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
           challenges: event.challenges.length,
           rebuttals: event.rebuttals.length,
         },
+        agents,
         decision: latestDecision
           ? {
               decisionId: latestDecision.decisionId,

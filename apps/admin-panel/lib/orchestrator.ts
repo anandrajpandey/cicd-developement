@@ -38,6 +38,28 @@ export type WorkflowStatus =
   | 'JUDGED'
   | 'CANCELLED';
 
+export type WorkflowAgentId =
+  | 'build_analyzer'
+  | 'code_reviewer'
+  | 'test_analyzer'
+  | 'dependency_checker'
+  | 'judge';
+
+export interface WorkflowAgentSnapshot {
+  agentId: WorkflowAgentId;
+  confidence: number | null;
+  previousConfidence?: number | null;
+  status:
+    | 'idle'
+    | 'analyzing'
+    | 'finding_ready'
+    | 'challenging'
+    | 'defending'
+    | 'conceding'
+    | 'judging';
+  rebuttalPosition?: 'DEFEND' | 'CONCEDE' | null;
+}
+
 export interface WorkflowListItem {
   eventId: string;
   repository: string;
@@ -59,6 +81,7 @@ export interface WorkflowListItem {
     challenges: number;
     rebuttals: number;
   };
+  agents?: WorkflowAgentSnapshot[];
   decision: {
     decisionId: string;
     riskTier: RiskTier;

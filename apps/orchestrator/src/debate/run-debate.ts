@@ -268,6 +268,30 @@ function validateRebuttal(rebuttal: Rebuttal | null): Rebuttal | null {
   return rebuttal;
 }
 
+function normalizeRebuttalConfidence(
+  rebuttal: Rebuttal,
+  findings: AgentFinding[],
+): Rebuttal {
+  const targetFinding = findings.find((finding) => finding.agentId === rebuttal.respondingAgentId);
+  const originalConfidence = targetFinding?.confidence ?? 0.5;
+
+  if (rebuttal.position === 'CONCEDE') {
+    const cappedConfidence = Math.max(0.05, Math.min(originalConfidence * 0.7, originalConfidence - 0.1));
+    return {
+      ...rebuttal,
+      updatedConfidence: Math.min(rebuttal.updatedConfidence, cappedConfidence),
+      rebuttalFactor: 0.7,
+    };
+  }
+
+  const defendedConfidence = Math.max(rebuttal.updatedConfidence, Math.min(originalConfidence, 0.45));
+  return {
+    ...rebuttal,
+    updatedConfidence: Math.max(0.05, Math.min(1, defendedConfidence)),
+    rebuttalFactor: 0.85,
+  };
+}
+
 function synthesizeHeuristicRebuttals(
   findings: AgentFinding[],
   foundChallenges: Challenge[],
@@ -862,6 +886,7 @@ export async function runRebuttals(
 
   const adkValidRebuttals = adkRebuttalResults
     .map((result) => validateRebuttal(result.rebuttal))
+    .map((rebuttal) => (rebuttal ? normalizeRebuttalConfidence(rebuttal, findings) : null))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
   const heuristicRebuttals =
     foundChallenges.length > 0 && adkValidRebuttals.length === 0
@@ -935,6 +960,7 @@ export async function runRebuttals(
   const validRebuttals = settledRebuttals
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
     .map((rebuttal) => validateRebuttal(rebuttal))
+    .map((rebuttal) => (rebuttal ? normalizeRebuttalConfidence(rebuttal, findings) : null))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
   const finalizedNativeRebuttals =
     validRebuttals.length > 0 ? validRebuttals : synthesizeHeuristicRebuttals(findings, foundChallenges);

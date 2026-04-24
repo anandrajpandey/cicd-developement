@@ -7,11 +7,31 @@ import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { io } from 'socket.io-client';
 
-import type { WorkflowListItem, WorkflowStatus } from '../lib/orchestrator';
+import type {
+  WorkflowAgentSnapshot,
+  WorkflowListItem,
+  WorkflowStatus,
+} from '../lib/orchestrator';
 
 interface Props {
   initialWorkflows: WorkflowListItem[];
 }
+
+const AGENT_ORDER = [
+  'build_analyzer',
+  'code_reviewer',
+  'test_analyzer',
+  'dependency_checker',
+  'judge',
+] as const;
+
+const AGENT_LABELS: Record<(typeof AGENT_ORDER)[number], string> = {
+  build_analyzer: 'Build',
+  code_reviewer: 'Code',
+  test_analyzer: 'Test',
+  dependency_checker: 'Deps',
+  judge: 'Judge',
+};
 
 function statusLabel(status: WorkflowStatus) {
   switch (status) {
@@ -119,6 +139,12 @@ function upsertWorkflow(
       round3At: null,
     },
     decision: null,
+    agents: AGENT_ORDER.map((agentId) => ({
+      agentId,
+      confidence: null,
+      status: agentId === 'judge' ? 'idle' : 'analyzing',
+      rebuttalPosition: null,
+    })),
   };
 
   const merged = {
@@ -128,6 +154,7 @@ function upsertWorkflow(
       ...(existing?.timestamps ?? fallback.timestamps),
       ...(patch.timestamps ?? {}),
     },
+    agents: patch.agents ?? existing?.agents ?? fallback.agents,
   } satisfies WorkflowListItem;
 
   return [...workflows.filter((item) => item.eventId !== patch.eventId), merged].sort(
@@ -137,12 +164,118 @@ function upsertWorkflow(
   );
 }
 
+function updateAgentSnapshot(
+  workflows: WorkflowListItem[],
+  eventId: string,
+  agentId: WorkflowAgentSnapshot['agentId'],
+  patch: Partial<WorkflowAgentSnapshot>,
+) {
+  return upsertWorkflow(
+    workflows.map((workflow) => {
+      if (workflow.eventId !== eventId) {
+        return workflow;
+      }
+
+      const currentAgents =
+        workflow.agents ??
+        AGENT_ORDER.map((currentAgentId) => ({
+          agentId: currentAgentId,
+          confidence: null,
+          status: currentAgentId === 'judge' ? 'idle' : 'analyzing',
+          rebuttalPosition: null,
+        }));
+
+      return {
+        ...workflow,
+        agents: currentAgents.map((agent) =>
+          agent.agentId === agentId
+            ? {
+                ...agent,
+                ...patch,
+              }
+            : agent,
+        ),
+      };
+    }),
+    { eventId },
+  );
+}
+
+function agentBarColor(status: WorkflowAgentSnapshot['status']) {
+  switch (status) {
+    case 'challenging':
+      return 'from-amber-400 to-orange-300';
+    case 'defending':
+      return 'from-sky-400 to-blue-300';
+    case 'conceding':
+      return 'from-red-400 to-rose-300';
+    case 'judging':
+      return 'from-yellow-400 to-amber-300';
+    case 'finding_ready':
+      return 'from-mint to-[#77ffca]';
+    case 'analyzing':
+      return 'from-cyan-400 to-sky-300';
+    default:
+      return 'from-white/15 to-white/5';
+  }
+}
+
+function formatConfidenceDelta(agent?: WorkflowAgentSnapshot) {
+  if (
+    !agent ||
+    typeof agent.confidence !== 'number' ||
+    typeof agent.previousConfidence !== 'number'
+  ) {
+    return null;
+  }
+
+  const delta = agent.confidence - agent.previousConfidence;
+  if (delta >= 0) {
+    return null;
+  }
+
+  return `${Math.round(delta * 100)}%`;
+}
+
 export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
   const router = useRouter();
   const [workflows, setWorkflows] = useState<WorkflowListItem[]>(initialWorkflows);
 
   useEffect(() => {
-    setWorkflows(initialWorkflows);
+    setWorkflows((current) => {
+      if (current.length === 0) {
+        return initialWorkflows;
+      }
+
+      const merged = new Map(current.map((workflow) => [workflow.eventId, workflow]));
+
+      for (const workflow of initialWorkflows) {
+        const existing = merged.get(workflow.eventId);
+        if (!existing) {
+          merged.set(workflow.eventId, workflow);
+          continue;
+        }
+
+        merged.set(workflow.eventId, {
+          ...existing,
+          ...workflow,
+          timestamps: {
+            ...existing.timestamps,
+            ...workflow.timestamps,
+          },
+          agents:
+            workflow.agents && workflow.agents.length > 0
+              ? workflow.agents
+              : existing.agents,
+        });
+      }
+
+      return [...merged.values()].sort(
+        (left, right) =>
+          new Date(right.timestamps.round3At ?? right.timestamps.startedAt).getTime() -
+          new Date(left.timestamps.round3At ?? left.timestamps.startedAt).getTime(),
+      );
+    });
   }, [initialWorkflows]);
 
   useEffect(() => {
@@ -167,9 +300,14 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
               round2At: null,
               round3At: null,
             },
+            agents: AGENT_ORDER.map((agentId) => ({
+              agentId,
+              confidence: null,
+              status: agentId === 'judge' ? 'idle' : 'analyzing',
+              rebuttalPosition: null,
+            })),
           }),
         );
-        router.refresh();
       },
     );
 
@@ -180,7 +318,6 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
           status: 'CANCELLED',
         }),
       );
-      router.refresh();
     });
 
     socket.on('round:0:complete', (payload: { eventId: string }) => {
@@ -194,6 +331,22 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
       );
     });
 
+    socket.on(
+      'round:0:finding',
+      (payload: {
+        eventId: string;
+        agentId: WorkflowAgentSnapshot['agentId'];
+        finding: { confidence: number };
+      }) => {
+        setWorkflows((current) =>
+          updateAgentSnapshot(current, payload.eventId, payload.agentId, {
+            confidence: payload.finding.confidence,
+            status: 'finding_ready',
+          }),
+        );
+      },
+    );
+
     socket.on('round:1:complete', (payload: { eventId: string }) => {
       const now = new Date().toISOString();
       setWorkflows((current) =>
@@ -205,6 +358,32 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
       );
     });
 
+    socket.on(
+      'round:1:challenge',
+      (payload: {
+        eventId: string;
+        challenge: {
+          challengerAgentId: WorkflowAgentSnapshot['agentId'];
+          targetAgentId: WorkflowAgentSnapshot['agentId'];
+        };
+      }) => {
+        setWorkflows((current) => {
+          let next = updateAgentSnapshot(
+            current,
+            payload.eventId,
+            payload.challenge.challengerAgentId,
+            {
+              status: 'challenging',
+            },
+          );
+          next = updateAgentSnapshot(next, payload.eventId, payload.challenge.targetAgentId, {
+            status: 'finding_ready',
+          });
+          return next;
+        });
+      },
+    );
+
     socket.on('round:2:complete', (payload: { eventId: string }) => {
       const now = new Date().toISOString();
       setWorkflows((current) =>
@@ -215,6 +394,26 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
         }),
       );
     });
+
+    socket.on(
+      'round:2:rebuttal',
+      (payload: {
+        eventId: string;
+        rebuttal: {
+          respondingAgentId: WorkflowAgentSnapshot['agentId'];
+          updatedConfidence: number;
+          position: 'DEFEND' | 'CONCEDE';
+        };
+      }) => {
+        setWorkflows((current) =>
+          updateAgentSnapshot(current, payload.eventId, payload.rebuttal.respondingAgentId, {
+            confidence: payload.rebuttal.updatedConfidence,
+            status: payload.rebuttal.position === 'DEFEND' ? 'defending' : 'conceding',
+            rebuttalPosition: payload.rebuttal.position,
+          }),
+        );
+      },
+    );
 
     socket.on(
       'decision:ready',
@@ -243,9 +442,18 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
               riskTier: payload.decision.riskTier,
               compositeScore: payload.decision.compositeScore,
             },
+            agents: (current.find((workflow) => workflow.eventId === eventId)?.agents ?? []).map(
+              (agent) =>
+                agent.agentId === 'judge'
+                  ? {
+                      ...agent,
+                      confidence: payload.decision.compositeScore,
+                      status: 'judging',
+                    }
+                  : agent,
+            ),
           }),
         );
-        router.refresh();
       },
     );
 
@@ -335,6 +543,52 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
                       className="h-full bg-[linear-gradient(90deg,#25d18a,#77ffca)]"
                     />
                   </div>
+
+                  {workflow.agents?.length ? (
+                    <div className="mt-4 grid gap-3 xl:grid-cols-5">
+                      {AGENT_ORDER.map((agentId) => {
+                        const agent = workflow.agents?.find((entry) => entry.agentId === agentId);
+                        const confidence = Math.max(
+                          0,
+                          Math.min(100, Math.round((agent?.confidence ?? 0) * 100)),
+                        );
+
+                        return (
+                          <div
+                            key={`${workflow.eventId}-${agentId}`}
+                            className="border border-white/8 bg-black/25 px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] uppercase tracking-[0.18em] text-mist/60">
+                                {AGENT_LABELS[agentId]}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {formatConfidenceDelta(agent) ? (
+                                  <span className="font-mono text-[10px] text-red-300">
+                                    {formatConfidenceDelta(agent)}
+                                  </span>
+                                ) : null}
+                                <span className="font-mono text-[11px] text-white/85">
+                                  {agent?.confidence == null ? '--' : `${confidence}%`}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden bg-white/8">
+                              <motion.div
+                                initial={false}
+                                animate={{ width: `${confidence}%` }}
+                                transition={{ type: 'spring', stiffness: 140, damping: 22 }}
+                                className={`h-full bg-gradient-to-r ${agentBarColor(agent?.status ?? 'idle')}`}
+                              />
+                            </div>
+                            <div className="mt-2 text-[10px] uppercase tracking-[0.16em] text-mist/45">
+                              {agent?.rebuttalPosition ?? agent?.status?.replace('_', ' ') ?? 'idle'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 grid gap-3 text-xs text-mist/68 xl:grid-cols-5">
                     <div>

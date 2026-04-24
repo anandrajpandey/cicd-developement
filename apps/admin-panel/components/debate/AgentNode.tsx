@@ -8,6 +8,7 @@ export type AgentNodeData = {
   label: string
   status: AgentStatus
   confidence?: number
+  confidenceDelta?: number
   rebuttalPosition?: 'DEFEND' | 'CONCEDE' | 'COMPROMISE'
 }
 
@@ -51,7 +52,7 @@ const ICONS: Record<AgentId, string> = {
 }
 
 export function AgentNode({ data }: NodeProps) {
-  const { agentId, label, status, confidence, rebuttalPosition } = data as AgentNodeData
+  const { agentId, label, status, confidence, confidenceDelta, rebuttalPosition } = data as AgentNodeData
   const Icon = ICONS[agentId]
   const pulse = status === 'analyzing' || status === 'judging' || status === 'challenging'
 
@@ -78,7 +79,14 @@ export function AgentNode({ data }: NodeProps) {
           <motion.div key="confidence" initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="mt-3">
             <div className="flex justify-between items-center mb-1.5">
               <span className="text-[9px] uppercase tracking-widest text-mist/60">Confidence</span>
-              <span className="text-[9px] font-mono text-white/90">{Math.round(confidence * 100)}%</span>
+              <div className="flex items-center gap-2">
+                {typeof confidenceDelta === 'number' && confidenceDelta < 0 ? (
+                  <span className="text-[9px] font-mono text-red-300">
+                    {Math.round(confidenceDelta * 100)}%
+                  </span>
+                ) : null}
+                <span className="text-[9px] font-mono text-white/90">{Math.round(confidence * 100)}%</span>
+              </div>
             </div>
             <div className="h-1 bg-black/50 rounded-full overflow-hidden w-full backdrop-blur-sm border border-white/5">
               <motion.div

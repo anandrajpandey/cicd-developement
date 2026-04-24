@@ -83,6 +83,7 @@ const BASE_EDGES: Edge[] = [
 interface Props {
   statuses: Record<AgentId, AgentStatus>;
   confidences: Partial<Record<AgentId, number>>;
+  baselineConfidences?: Partial<Record<AgentId, number>>;
   challenges: Challenge[];
   rebuttals: Partial<Record<AgentId, Rebuttal>>;
   onHoverNode?: (id: AgentId | null) => void;
@@ -96,7 +97,7 @@ export function DebateGraph(props: Props) {
   );
 }
 
-function DebateGraphInner({ statuses, confidences, challenges, rebuttals, onHoverNode }: Props) {
+function DebateGraphInner({ statuses, confidences, baselineConfidences, challenges, rebuttals, onHoverNode }: Props) {
   const reactFlowInstance = useReactFlow();
 
   const derivedNodes: Node[] = useMemo(
@@ -115,11 +116,15 @@ function DebateGraphInner({ statuses, confidences, challenges, rebuttals, onHove
           label: a.label,
           status: statuses[a.id] ?? 'idle',
           confidence: confidences[a.id],
+          confidenceDelta:
+            typeof confidences[a.id] === 'number' && typeof baselineConfidences?.[a.id] === 'number'
+              ? confidences[a.id]! - baselineConfidences[a.id]!
+              : undefined,
           rebuttalPosition: rebuttals[a.id]?.position,
         } satisfies AgentNodeData,
       }))
     ],
-    [statuses, confidences, rebuttals],
+    [statuses, confidences, baselineConfidences, rebuttals],
   );
 
   const derivedEdges: Edge[] = useMemo(
