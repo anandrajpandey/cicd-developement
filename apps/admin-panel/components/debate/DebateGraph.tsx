@@ -24,7 +24,7 @@ const edgeTypes = { challengeEdge: ChallengeEdge };
 const PRO_OPTIONS = { hideAttribution: true };
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
 
-const AGENT_CONFIG: { id: AgentId; label: string; x: number; y: number }[] = [  
+const AGENT_CONFIG: { id: AgentId; label: string; x: number; y: number }[] = [
   { id: 'build_analyzer', label: 'Build Analyzer', x: 350, y: 150 },
   { id: 'code_reviewer', label: 'Code Reviewer', x: 350, y: 300 },
   { id: 'test_analyzer', label: 'Test Analyzer', x: 350, y: 450 },
@@ -52,7 +52,7 @@ const BASE_NODES: Node[] = [
       textTransform: 'uppercase',
       letterSpacing: '1px',
       fontWeight: 'bold',
-      boxShadow: '0 0 15px -3px rgba(0, 0, 0, 0.5)'
+      boxShadow: '0 0 15px -3px rgba(0, 0, 0, 0.5)',
     },
   },
 ];
@@ -83,7 +83,6 @@ const BASE_EDGES: Edge[] = [
 interface Props {
   statuses: Record<AgentId, AgentStatus>;
   confidences: Partial<Record<AgentId, number>>;
-  baselineConfidences?: Partial<Record<AgentId, number>>;
   challenges: Challenge[];
   rebuttals: Partial<Record<AgentId, Rebuttal>>;
   onHoverNode?: (id: AgentId | null) => void;
@@ -97,7 +96,7 @@ export function DebateGraph(props: Props) {
   );
 }
 
-function DebateGraphInner({ statuses, confidences, baselineConfidences, challenges, rebuttals, onHoverNode }: Props) {
+function DebateGraphInner({ statuses, confidences, challenges, rebuttals, onHoverNode }: Props) {
   const reactFlowInstance = useReactFlow();
 
   const derivedNodes: Node[] = useMemo(
@@ -116,15 +115,11 @@ function DebateGraphInner({ statuses, confidences, baselineConfidences, challeng
           label: a.label,
           status: statuses[a.id] ?? 'idle',
           confidence: confidences[a.id],
-          confidenceDelta:
-            typeof confidences[a.id] === 'number' && typeof baselineConfidences?.[a.id] === 'number'
-              ? confidences[a.id]! - baselineConfidences[a.id]!
-              : undefined,
           rebuttalPosition: rebuttals[a.id]?.position,
         } satisfies AgentNodeData,
-      }))
+      })),
     ],
-    [statuses, confidences, baselineConfidences, rebuttals],
+    [statuses, confidences, rebuttals],
   );
 
   const derivedEdges: Edge[] = useMemo(
@@ -134,31 +129,29 @@ function DebateGraphInner({ statuses, confidences, baselineConfidences, challeng
         const rebuttal = rebuttals[challenge.targetAgentId];
         const isResolved = Boolean(rebuttal);
         const position = rebuttal?.position;
-        const color = isResolved 
-            ? (position === 'DEFEND' ? '#3b82f6' : '#ef4444') 
-            : '#f59e0b';
-            
+        const color = isResolved ? (position === 'DEFEND' ? '#3b82f6' : '#ef4444') : '#f59e0b';
+
         let label = `Contradicts ${challenge.targetAgentId.split('_').join(' ')}`;
         if (isResolved) {
-            label = `${position === 'DEFEND' ? 'Defended' : position === 'CONCEDE' ? 'Conceded' : 'Compromised'} against ${challenge.challengerAgentId.split('_').join(' ')}`;
+          label = `${position === 'DEFEND' ? 'Defended' : position === 'CONCEDE' ? 'Conceded' : 'Compromised'} against ${challenge.challengerAgentId.split('_').join(' ')}`;
         }
 
         return {
-            id: challenge.challengeId,
-            source: challenge.challengerAgentId,
-            target: challenge.targetAgentId,
-            type: 'challengeEdge',
-            selectable: false,
-            animated: true,
-            markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: color,
-            },
-            data: {
-                label,      
-                resolved: isResolved,
-                position: position,
-            },
+          id: challenge.challengeId,
+          source: challenge.challengerAgentId,
+          target: challenge.targetAgentId,
+          type: 'challengeEdge',
+          selectable: false,
+          animated: true,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: color,
+          },
+          data: {
+            label,
+            resolved: isResolved,
+            position: position,
+          },
         };
       }),
     ],
@@ -187,9 +180,12 @@ function DebateGraphInner({ statuses, confidences, baselineConfidences, challeng
     setEdges(derivedEdges);
   }, [derivedEdges, setEdges]);
 
-  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
-    onHoverNode?.(node.id as AgentId);
-  }, [onHoverNode]);
+  const onNodeMouseEnter = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      onHoverNode?.(node.id as AgentId);
+    },
+    [onHoverNode],
+  );
 
   const onPaneMouseEnter = useCallback(() => {
     onHoverNode?.(null);
@@ -198,18 +194,22 @@ function DebateGraphInner({ statuses, confidences, baselineConfidences, challeng
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const zoom = node.id === 'root_event' ? 1.5 : 1.2;
-      reactFlowInstance.setCenter(node.position.x + (node.id === 'root_event' ? 90 : 120), node.position.y + 40, {
-        zoom,
-        duration: 800,
-      });
+      reactFlowInstance.setCenter(
+        node.position.x + (node.id === 'root_event' ? 90 : 120),
+        node.position.y + 40,
+        {
+          zoom,
+          duration: 800,
+        },
+      );
       // We can also trigger the overlay by setting hover node on click so it stays
       onHoverNode?.(node.id as AgentId);
     },
-    [reactFlowInstance, onHoverNode]
+    [reactFlowInstance, onHoverNode],
   );
 
   return (
-    <div className="h-full w-full bg-[#0A0A0A]">  
+    <div className="h-full w-full bg-[#0A0A0A]">
       <ReactFlow
         nodes={nodes}
         edges={edges}

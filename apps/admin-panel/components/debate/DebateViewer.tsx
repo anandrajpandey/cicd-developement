@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { io } from 'socket.io-client';
 
-import { cancelEvent } from '../../lib/orchestrator';
 import type { DecisionDetail } from '../../lib/orchestrator';
 import { DebateGraph } from './DebateGraph';
 import { DebateChatFeed } from './DebateChatFeed';
@@ -31,7 +31,7 @@ const DEFAULT_STATUSES = Object.fromEntries(ALL_AGENTS.map((id) => [id, 'idle'])
   AgentStatus
 >;
 
-function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding { 
+function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding {
   return {
     findingId: finding.findingId,
     agentId: finding.agentId as AgentId,
@@ -39,7 +39,6 @@ function toFinding(finding: DecisionDetail['findings'][number]): AgentFinding {
     evidence: finding.evidence,
     confidence: finding.confidence,
     proposedRemediation: finding.proposedRemediation,
-    toolTrace: finding.toolTrace,
   };
 }
 
@@ -52,7 +51,7 @@ function toChallenge(challenge: DecisionDetail['challenges'][number]): Challenge
   };
 }
 
-function toRebuttal(rebuttal: DecisionDetail['rebuttals'][number]): Rebuttal {  
+function toRebuttal(rebuttal: DecisionDetail['rebuttals'][number]): Rebuttal {
   return {
     rebuttalId: rebuttal.rebuttalId,
     respondingAgentId: rebuttal.respondingAgentId as AgentId,
@@ -122,37 +121,6 @@ function hydrateStatuses(
   return statuses;
 }
 
-function buildConfidenceMap(
-  findings: AgentFinding[],
-  rebuttalMap: Partial<Record<AgentId, Rebuttal>>,
-): Partial<Record<AgentId, number>> {
-  const base = Object.fromEntries(findings.map((finding) => [finding.agentId, finding.confidence])) as Partial<
-    Record<AgentId, number>
-  >;
-
-  for (const [agentId, rebuttal] of Object.entries(rebuttalMap) as Array<[AgentId, Rebuttal | undefined]>) {
-    if (!rebuttal) {
-      continue;
-    }
-
-    base[agentId] = rebuttal.updatedConfidence;
-  }
-
-  return base;
-}
-
-function stringifyToolPayload(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 export function DebateViewer({
   eventId,
   initialData,
@@ -160,8 +128,12 @@ export function DebateViewer({
   eventId: string;
   initialData?: DecisionDetail | null;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get('from');
+
   const initialFindings = useMemo(
-    () => (initialData?.findings ?? []).map((finding) => toFinding(finding)),   
+    () => (initialData?.findings ?? []).map((finding) => toFinding(finding)),
     [initialData],
   );
   const initialChallenges = useMemo(
@@ -179,7 +151,7 @@ export function DebateViewer({
     [initialData],
   );
   const initialDecision = useMemo(
-    () => (initialData?.decision ? toDecision(initialData.decision) : null),    
+    () => (initialData?.decision ? toDecision(initialData.decision) : null),
     [initialData],
   );
 
@@ -187,53 +159,39 @@ export function DebateViewer({
     deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision),
   );
   const [selectedRound, setSelectedRound] = useState<number | 'live'>('live');
-  
+
   const currentRound = selectedRound === 'live' ? liveRound : selectedRound;
 
-  const [statuses, setStatuses] = useState<Record<AgentId, AgentStatus>>(() =>  
+  const [statuses, setStatuses] = useState<Record<AgentId, AgentStatus>>(() =>
     hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
   );
   const [confidences, setConfidences] = useState<Partial<Record<AgentId, number>>>(() =>
-    buildConfidenceMap(initialFindings, initialRebuttals),
+    Object.fromEntries(initialFindings.map((finding) => [finding.agentId, finding.confidence])),
   );
-  const [findings, setFindings] = useState<AgentFinding[]>(initialFindings);    
-  const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges); 
+  const [findings, setFindings] = useState<AgentFinding[]>(initialFindings);
+  const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
   const [rebuttals, setRebuttals] = useState<Partial<Record<AgentId, Rebuttal>>>(initialRebuttals);
-  const [decision, setDecision] = useState<Decision | null>(initialDecision);   
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [isCancelled, setIsCancelled] = useState(initialData?.runtimeStatus === 'CANCELLED');
-  
+  const [decision, setDecision] = useState<Decision | null>(initialDecision);
+
   const [hoveredNode, setHoveredNode] = useState<AgentId | null>(null);
-  const findingsRef = useRef<AgentFinding[]>(initialFindings);
-  const challengesRef = useRef<Challenge[]>(initialChallenges);
-  const rebuttalsRef = useRef<Partial<Record<AgentId, Rebuttal>>>(initialRebuttals);
-
-  function getDisplayedConfidence(agentId: AgentId) {
-    const rebuttal = rebuttals[agentId];
-    if (rebuttal) {
-      return rebuttal.updatedConfidence;
-    }
-
-    return findings.find((finding) => finding.agentId === agentId)?.confidence ?? 0;
-  }
 
   const setStatus = (agentId: AgentId, status: AgentStatus) =>
     setStatuses((state) => ({ ...state, [agentId]: status }));
 
   useEffect(() => {
-    setLiveRound(deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision));
+    setLiveRound(
+      deriveRound(initialFindings, initialChallenges, initialRebuttals, initialDecision),
+    );
     setStatuses(
       hydrateStatuses(initialFindings, initialChallenges, initialRebuttals, initialDecision),
     );
-    setConfidences(buildConfidenceMap(initialFindings, initialRebuttals));
+    setConfidences(
+      Object.fromEntries(initialFindings.map((finding) => [finding.agentId, finding.confidence])),
+    );
     setFindings(initialFindings);
     setChallenges(initialChallenges);
     setRebuttals(initialRebuttals);
     setDecision(initialDecision);
-    setIsCancelled(initialData?.runtimeStatus === 'CANCELLED');
-    findingsRef.current = initialFindings;
-    challengesRef.current = initialChallenges;
-    rebuttalsRef.current = initialRebuttals;
   }, [eventId, initialChallenges, initialDecision, initialFindings, initialRebuttals]);
 
   useEffect(() => {
@@ -257,17 +215,7 @@ export function DebateViewer({
         test_analyzer: 'analyzing',
         dependency_checker: 'analyzing',
       });
-      setIsCancelled(false);
     });
-
-    socket.on(
-      'debate:cancelled',
-      (payload: { eventId: string; status: 'CANCELLED' }) => {
-        if (payload.eventId !== eventId) return;
-        setIsCancelled(true);
-        setStatuses(DEFAULT_STATUSES);
-      },
-    );
 
     socket.on(
       'round:0:finding',
@@ -281,15 +229,13 @@ export function DebateViewer({
         finding: AgentFinding;
       }) => {
         if (incomingEventId !== eventId) return;
-        if (finding.agentId !== agentId || finding.agentId === 'judge') return; 
+        if (finding.agentId !== agentId || finding.agentId === 'judge') return;
 
         setFindings((state) => {
-          if (state.some((entry) => entry.findingId === finding.findingId)) {   
+          if (state.some((entry) => entry.findingId === finding.findingId)) {
             return state;
           }
-          const next = [...state, finding];
-          findingsRef.current = next;
-          return next;
+          return [...state, finding];
         });
         setConfidences((state) => ({ ...state, [agentId]: finding.confidence }));
         setStatus(agentId, 'finding_ready');
@@ -309,7 +255,6 @@ export function DebateViewer({
         setLiveRound(1);
         if (incomingFindings?.length) {
           setFindings(incomingFindings);
-          findingsRef.current = incomingFindings;
           setConfidences(
             Object.fromEntries(
               incomingFindings.map((finding) => [finding.agentId, finding.confidence]),
@@ -329,9 +274,7 @@ export function DebateViewer({
           if (state.some((entry) => entry.challengeId === challenge.challengeId)) {
             return state;
           }
-          const next = [...state, challenge];
-          challengesRef.current = next;
-          return next;
+          return [...state, challenge];
         });
         setStatus(challenge.challengerAgentId, 'challenging');
       },
@@ -350,7 +293,6 @@ export function DebateViewer({
         setLiveRound(2);
         if (incomingChallenges) {
           setChallenges(incomingChallenges);
-          challengesRef.current = incomingChallenges;
         }
       },
     );
@@ -359,11 +301,7 @@ export function DebateViewer({
       'round:2:rebuttal',
       ({ eventId: incomingEventId, rebuttal }: { eventId: string; rebuttal: Rebuttal }) => {
         if (incomingEventId !== eventId) return;
-        setRebuttals((state) => {
-          const next = { ...state, [rebuttal.respondingAgentId]: rebuttal };
-          rebuttalsRef.current = next;
-          return next;
-        });
+        setRebuttals((state) => ({ ...state, [rebuttal.respondingAgentId]: rebuttal }));
         setConfidences((state) => ({
           ...state,
           [rebuttal.respondingAgentId]: rebuttal.updatedConfidence,
@@ -395,16 +333,6 @@ export function DebateViewer({
             }),
           ) as Partial<Record<AgentId, Rebuttal>>;
           setRebuttals(mapped);
-          rebuttalsRef.current = mapped;
-          setConfidences((state) => ({
-            ...state,
-            ...Object.fromEntries(
-              Object.entries(mapped).map(([agentId, rebuttal]) => [
-                agentId,
-                rebuttal?.updatedConfidence,
-              ]),
-            ),
-          }));
         }
       },
     );
@@ -418,14 +346,11 @@ export function DebateViewer({
             ? toDecision(incomingDecision as DecisionDetail['decision'])
             : (incomingDecision as Decision);
         if (!normalized) return;
-        if (
-          'eventId' in incomingDecision &&
-          incomingDecision?.eventId !== eventId
-        ) {
+        if ('eventId' in incomingDecision && incomingDecision?.eventId !== eventId) {
           return;
         }
         setDecision(normalized);
-        setStatuses(hydrateStatuses(findingsRef.current, challengesRef.current, rebuttalsRef.current, normalized));
+        setStatuses(DEFAULT_STATUSES);
       },
     );
 
@@ -440,42 +365,38 @@ export function DebateViewer({
   const displayedRebuttals = currentRound >= 2 ? rebuttals : {};
   const displayedDecision = currentRound >= 3 ? decision : null;
 
-  async function handleCancel() {
-    setIsCancelling(true);
-    try {
-      await cancelEvent(eventId);
-      setIsCancelled(true);
-      setStatuses(DEFAULT_STATUSES);
-    } finally {
-      setIsCancelling(false);
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-[100] bg-[#0A0A0A] overflow-hidden flex flex-col font-sans">
       <div className="flex-none p-4 flex items-center justify-between bg-[#0F1218]">
         <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-white tracking-widest uppercase">Agentic Trace</h1>
-            <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
-            {isCancelled ? (
-              <span className="px-3 py-1 rounded-md border border-red-500/30 bg-red-500/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-300">
-                Cancelled
-              </span>
-            ) : null}
+          <h1 className="text-xl font-bold text-white tracking-widest uppercase">Agentic Trace</h1>
+          <p className="text-mist/70 text-sm font-mono mt-0.5">Event {eventId.slice(0, 8)}</p>
         </div>
         <div className="flex bg-white/5 rounded-lg p-1 gap-1">
-            {!displayedDecision && !isCancelled ? (
-              <button
-                onClick={handleCancel}
-                disabled={isCancelling}
-                className="px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-red-500/10 text-red-300 shadow-lg hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isCancelling ? 'Stopping...' : 'Stop Event'}
-              </button>
-            ) : null}
-            <button onClick={() => setSelectedRound('live')} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Live View</button>
-            <button onClick={() => setSelectedRound(3)} className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}>Final Decision</button>
-            <a href="/" className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20">Exit</a>
+          <button
+            onClick={() => setSelectedRound('live')}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 'live' ? 'bg-primary text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}
+          >
+            Live View
+          </button>
+          <button
+            onClick={() => setSelectedRound(3)}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors ${selectedRound === 3 ? 'bg-white/10 text-white shadow-lg' : 'text-mist hover:text-white hover:bg-white/5'}`}
+          >
+            Final Decision
+          </button>
+          <button
+            onClick={() => {
+              if (from === 'testcases') {
+                router.push('/testcases');
+              } else {
+                router.push('/');
+              }
+            }}
+            className="px-4 py-1.5 ml-4 rounded-md text-xs font-semibold tracking-wider uppercase transition-colors bg-white/10 text-white shadow-lg hover:bg-white/20"
+          >
+            Exit
+          </button>
         </div>
       </div>
 
@@ -483,25 +404,31 @@ export function DebateViewer({
         <div className="hidden lg:flex w-[480px] border-r border-white/5 bg-[#08080A] flex-col z-20 shadow-[10px_0_30px_rgba(0,0,0,0.5)]">
           <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/40 shadow-sm z-10">
             <div className="flex gap-2 items-center">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[11px] uppercase font-bold tracking-widest text-mist/90">Agent Feed</span>
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[11px] uppercase font-bold tracking-widest text-mist/90">
+                Agent Feed
+              </span>
             </div>
             <span className="text-[9px] font-mono text-mist/50">Round {currentRound}</span>
           </div>
           <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-white/5">
-            <DebateChatFeed findings={displayedFindings} challenges={displayedChallenges} rebuttals={displayedRebuttals} decision={displayedDecision} />
+            <DebateChatFeed
+              findings={displayedFindings}
+              challenges={displayedChallenges}
+              rebuttals={displayedRebuttals}
+              decision={displayedDecision}
+            />
           </div>
         </div>
 
         <div className="flex-1 relative h-full w-full">
-            <DebateGraph
+          <DebateGraph
             statuses={statuses}
             confidences={confidences}
-            baselineConfidences={Object.fromEntries(findings.map((finding) => [finding.agentId, finding.confidence]))}
             challenges={displayedChallenges}
             rebuttals={displayedRebuttals}
             onHoverNode={setHoveredNode}
-            />
+          />
         </div>
 
         <AnimatePresence>
@@ -519,35 +446,47 @@ export function DebateViewer({
 
               {hoveredNode === 'root_event' ? (
                 <div className="space-y-4">
-                    <div className="p-4 rounded-xl bg-white/5">
-                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Repository / Branch</p>
-                        <p className="text-sm font-mono text-white/90">{initialData?.event?.repository} / {initialData?.event?.branch}</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-red-900/10 border border-red-500/20">
-                        <p className="text-xs uppercase text-red-400 font-semibold mb-2">Error Log</p>
-                        <pre className="text-[10px] sm:text-xs text-red-300 font-mono whitespace-pre-wrap break-words">{initialData?.event?.errorLog ?? 'No logs captured.'}</pre>
-                    </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <p className="text-xs uppercase text-mist/60 font-semibold mb-1">
+                      Repository / Branch
+                    </p>
+                    <p className="text-sm font-mono text-white/90">
+                      {initialData?.event?.repository} / {initialData?.event?.branch}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-red-900/10 border border-red-500/20">
+                    <p className="text-xs uppercase text-red-400 font-semibold mb-2">Error Log</p>
+                    <pre className="text-[10px] sm:text-xs text-red-300 font-mono whitespace-pre-wrap break-words">
+                      {initialData?.event?.errorLog ?? 'No logs captured.'}
+                    </pre>
+                  </div>
                 </div>
               ) : hoveredNode === 'judge' ? (
                 displayedDecision ? (
                   <div className="space-y-4">
                     <div className="p-4 rounded-xl bg-white/5">
-                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Decision</p>
-                        <p className="text-sm text-white/90">{displayedDecision.recommendedAction}</p>
+                      <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Decision</p>
+                      <p className="text-sm text-white/90">{displayedDecision.recommendedAction}</p>
                     </div>
                     <div className="p-4 rounded-xl bg-white/5">
-                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Reasoning</p>
-                        <p className="text-sm text-white/90">{displayedDecision.reasoning}</p>
+                      <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Reasoning</p>
+                      <p className="text-sm text-white/90">{displayedDecision.reasoning}</p>
                     </div>
                     <div className="flex justify-between p-4 rounded-xl bg-white/5">
-                        <div>
-                            <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Risk Tier</p>
-                            <p className="text-sm font-mono text-white/90">{displayedDecision.riskTier}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Score</p>
-                            <p className="text-sm font-mono text-white/90">{Math.round(displayedDecision.compositeScore * 100)}%</p>
-                        </div>
+                      <div>
+                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">
+                          Risk Tier
+                        </p>
+                        <p className="text-sm font-mono text-white/90">
+                          {displayedDecision.riskTier}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase text-mist/60 font-semibold mb-1">Score</p>
+                        <p className="text-sm font-mono text-white/90">
+                          {Math.round(displayedDecision.compositeScore * 100)}%
+                        </p>
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -558,104 +497,114 @@ export function DebateViewer({
                   {displayedFindings.find((f) => f.agentId === hoveredNode) && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                         <div className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold tracking-wider">Analysis Finding</div>
-                         <div className="flex items-center gap-2 text-xl font-mono text-white/90">
-                           {displayedRebuttals[hoveredNode as AgentId] &&
-                           displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence <
-                             (displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0) ? (
-                             <span className="text-sm text-red-300">
-                               {Math.round(
-                                 (displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence -
-                                   (displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ?? 0)) *
-                                   100,
-                               )}%
-                             </span>
-                           ) : null}
-                           <span>{Math.round(getDisplayedConfidence(hoveredNode as AgentId) * 100)}% <span className="text-xs text-mist/50">Conf.</span></span>
-                         </div>
+                        <div className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold tracking-wider">
+                          Analysis Finding
+                        </div>
+                        <div className="text-xl font-mono text-white/90">
+                          {Math.round(
+                            (displayedFindings.find((f) => f.agentId === hoveredNode)?.confidence ??
+                              0) * 100,
+                          )}
+                          % <span className="text-xs text-mist/50">Conf.</span>
+                        </div>
                       </div>
                       <div className="bg-white/5 p-4 rounded-xl space-y-4">
                         <div>
-                            <p className="text-[10px] uppercase text-[#3B82F6] font-bold tracking-widest mb-1">Hypothesis</p>
-                            <p className="text-sm text-white/90 leading-relaxed mt-1">{displayedFindings.find((f) => f.agentId === hoveredNode)?.hypothesis}</p>
+                          <p className="text-[10px] uppercase text-[#3B82F6] font-bold tracking-widest mb-1">
+                            Hypothesis
+                          </p>
+                          <p className="text-sm text-white/90 leading-relaxed mt-1">
+                            {displayedFindings.find((f) => f.agentId === hoveredNode)?.hypothesis}
+                          </p>
                         </div>
                         <div>
-                            <p className="text-[10px] uppercase text-[#10B981] font-bold tracking-widest mb-1 border-b border-[#10B981]/20 pb-1 inline-block">Evidence</p>
-                            <ul className="mt-1 space-y-2">
-                              {displayedFindings.find((f) => f.agentId === hoveredNode)?.evidence.map((ev, i) => (
-                                <li key={i} className="text-xs text-mist/70 font-mono bg-black/20 p-2 rounded-lg break-words">— {ev}</li>
-                              ))}
-                            </ul>
-                        </div>
-                        <div>
-                            <p className="text-[10px] uppercase text-mist/50 font-bold tracking-widest mb-1 border-b border-white/10 pb-1 inline-block">Proposed Mitigation</p>
-                            <pre className="mt-1 text-xs text-mist/80 font-mono bg-black/20 p-3 rounded-lg break-words whitespace-pre-wrap">{displayedFindings.find((f) => f.agentId === hoveredNode)?.proposedRemediation}</pre>
-                        </div>
-                        {(displayedFindings.find((f) => f.agentId === hoveredNode)?.toolTrace?.length ?? 0) > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase text-cyan-400 font-bold tracking-widest mb-1 border-b border-cyan-400/20 pb-1 inline-block">Tool Trace</p>
-                            <div className="mt-2 space-y-3">
-                              {displayedFindings.find((f) => f.agentId === hoveredNode)?.toolTrace?.map((trace, index) => (
-                                <div
-                                  key={`${trace.toolName}-${trace.timestamp ?? index}`}
-                                  className="rounded-xl border border-cyan-400/10 bg-cyan-500/5 p-3"
+                          <p className="text-[10px] uppercase text-[#10B981] font-bold tracking-widest mb-1 border-b border-[#10B981]/20 pb-1 inline-block">
+                            Evidence
+                          </p>
+                          <ul className="mt-1 space-y-2">
+                            {displayedFindings
+                              .find((f) => f.agentId === hoveredNode)
+                              ?.evidence.map((ev, i) => (
+                                <li
+                                  key={i}
+                                  className="text-xs text-mist/70 font-mono bg-black/20 p-2 rounded-lg break-words"
                                 >
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className="text-[10px] uppercase tracking-widest text-cyan-300 font-bold">
-                                      {trace.toolName.replaceAll('_', ' ')}
-                                    </p>
-                                    {trace.timestamp ? (
-                                      <p className="text-[10px] font-mono text-mist/45">
-                                        {new Date(trace.timestamp).toLocaleTimeString()}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                  <pre className="mt-2 text-[11px] text-mist/65 font-mono whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2">
-                                    {stringifyToolPayload(trace.args ?? {})}
-                                  </pre>
-                                  <pre className="mt-2 text-[11px] text-white/80 font-mono whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2">
-                                    {stringifyToolPayload(trace.result ?? {})}
-                                  </pre>
-                                </div>
+                                  — {ev}
+                                </li>
                               ))}
-                            </div>
-                          </div>
-                        )}
+                          </ul>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-mist/50 font-bold tracking-widest mb-1 border-b border-white/10 pb-1 inline-block">
+                            Proposed Mitigation
+                          </p>
+                          <pre className="mt-1 text-xs text-mist/80 font-mono bg-black/20 p-3 rounded-lg break-words whitespace-pre-wrap">
+                            {
+                              displayedFindings.find((f) => f.agentId === hoveredNode)
+                                ?.proposedRemediation
+                            }
+                          </pre>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).length > 0 && (
+                  {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).length >
+                    0 && (
                     <div className="space-y-3">
-                      <div className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Challenged By</div>
+                      <div className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">
+                        Challenged By
+                      </div>
                       <div className="space-y-3">
-                        {displayedChallenges.filter((c) => c.targetAgentId === hoveredNode).map((c) => (
-                            <div key={c.challengeId} className="bg-orange-500/5 p-4 rounded-xl space-y-3">
-                                <div className="flex items-center gap-2">       
-                                  <p className="text-xs text-orange-400 font-bold uppercase tracking-widest">{c.challengerAgentId.replace('_', ' ')}</p>        
-                                </div>
-                                <p className="text-sm text-mist/90 leading-relaxed">{c.counterHypothesis}</p>
+                        {displayedChallenges
+                          .filter((c) => c.targetAgentId === hoveredNode)
+                          .map((c) => (
+                            <div
+                              key={c.challengeId}
+                              className="bg-orange-500/5 p-4 rounded-xl space-y-3"
+                            >
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-orange-400 font-bold uppercase tracking-widest">
+                                  {c.challengerAgentId.replace('_', ' ')}
+                                </p>
+                              </div>
+                              <p className="text-sm text-mist/90 leading-relaxed">
+                                {c.counterHypothesis}
+                              </p>
                             </div>
-                        ))}
+                          ))}
                       </div>
                     </div>
                   )}
 
                   {displayedRebuttals[hoveredNode as AgentId] && (
                     <div className="space-y-3">
-                      <div className="px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">Resolution Motion</div>
-                      <div className={`p-4 rounded-xl space-y-3 ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'bg-blue-500/5' : 'bg-red-500/5'}`}>
-                         <p className={`text-[10px] uppercase font-bold tracking-widest ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'text-blue-400' : 'text-red-400'}`}>Agent chose to {displayedRebuttals[hoveredNode as AgentId]!.position}</p>
-                         <div className="flex justify-between items-center text-sm font-mono p-2 bg-black/20 rounded-lg">
-                           <span className="text-mist/60">Updated Confidence</span>
-                           <span className="text-white/90">{Math.round(displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence * 100)}%</span>
-                         </div>
+                      <div className="px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full text-xs font-semibold tracking-wider self-start inline-block">
+                        Resolution Motion
+                      </div>
+                      <div
+                        className={`p-4 rounded-xl space-y-3 ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'bg-blue-500/5' : 'bg-red-500/5'}`}
+                      >
+                        <p
+                          className={`text-[10px] uppercase font-bold tracking-widest ${displayedRebuttals[hoveredNode as AgentId]!.position === 'DEFEND' ? 'text-blue-400' : 'text-red-400'}`}
+                        >
+                          Agent chose to {displayedRebuttals[hoveredNode as AgentId]!.position}
+                        </p>
+                        <div className="flex justify-between items-center text-sm font-mono p-2 bg-black/20 rounded-lg">
+                          <span className="text-mist/60">Updated Confidence</span>
+                          <span className="text-white/90">
+                            {Math.round(
+                              displayedRebuttals[hoveredNode as AgentId]!.updatedConfidence * 100,
+                            )}
+                            %
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {!displayedFindings.find((f) => f.agentId === hoveredNode) && (
-                      <p className="text-mist/50 italic text-sm">Waiting for agent analysis...</p>
+                    <p className="text-mist/50 italic text-sm">Waiting for agent analysis...</p>
                   )}
                 </div>
               )}

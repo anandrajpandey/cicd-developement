@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* Enforce glitchy, sharp shapes over curvy boxes globally */
+  *, ::before, ::after {
+    border-radius: 0 !important;
+  }
+}
+
 :root {
   color-scheme: dark;
   --bg-primary: #06111b;
@@ -11,7 +18,6 @@
   --line-soft: rgba(105, 138, 166, 0.18);
   --text-primary: #edf7ff;
   --text-muted: rgba(215, 234, 250, 0.72);
-  --font-robotic: "OCR A Extended", "Bahnschrift SemiBold", "Bahnschrift", "Rajdhani", "Eurostile", "Segoe UI", sans-serif;
 }
 
 html {
@@ -25,9 +31,6 @@ body {
   overflow: hidden;
   color: var(--text-primary);
   background: linear-gradient(180deg, #0f1c2d 0%, #06111b 48%, #071524 100%);
-  font-family: var(--font-robotic);
-  letter-spacing: 0.018em;
-  font-feature-settings: "liga" 0, "calt" 0;
 }
 
 * {
@@ -55,26 +58,19 @@ button {
   @apply border;
   background: rgba(14, 25, 41, 0.8);
   border-color: rgba(105, 138, 166, 0.18);
+  clip-path: polygon(
+    0 10px,
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%
+  );
 }
 
 .eyebrow {
   @apply text-[10px] uppercase tracking-[0.34em];
   color: rgba(151, 221, 255, 0.72);
-  font-family: var(--font-robotic);
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-.metric-card,
-.badge,
-.glow-button,
-.ghost-button {
-  font-family: var(--font-robotic);
-  letter-spacing: 0.04em;
 }
 
 .metric-card {
@@ -101,6 +97,7 @@ h6,
   background: rgba(30, 41, 59, 1);
   color: #edf7ff;
   border: 1px solid rgba(105, 138, 166, 0.3);
+  clip-path: polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
 }
 
 .glow-button:hover {
@@ -113,6 +110,7 @@ h6,
   background: rgba(10, 19, 31, 0.62);
   color: rgba(233, 245, 255, 0.92);
   border-color: rgba(104, 140, 170, 0.18);
+  clip-path: polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
 }
 
 .ghost-button:hover {

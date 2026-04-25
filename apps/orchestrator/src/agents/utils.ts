@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { chat, createChatClient } from '@agentic-cicd/llm-client';
+import { chat } from '@agentic-cicd/llm-client';
 import {
   type AgentFinding,
   type AgentId,
@@ -14,9 +14,6 @@ import {
   challengeSchema,
   rebuttalSchema,
 } from '@agentic-cicd/shared-types';
-
-const FALLBACK_CHAT_MODEL = 'llama-3.1-8b-instant';
-const fastChat = createChatClient({ timeoutMs: 20_000 });
 
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
@@ -45,17 +42,6 @@ export interface CodeContextEntry {
   endLine: number;
 }
 
-export interface AgentPromptPayload {
-  eventId: string;
-  repository: string;
-  commitSha: string;
-  branch: string;
-  failureType: string;
-  timestamp: string;
-  errorLog: string;
-  codeContext: CodeContextEntry[];
-}
-
 const CONTEXT_FILE_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs|json|yml|yaml|md)$/i;
 const WORKSPACE_IGNORE_DIRS = new Set([
   '.git',
@@ -70,26 +56,6 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 ]);
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
-const LOW_RISK_CONTEXT_LIMIT = 3;
-const ELEVATED_RISK_CONTEXT_LIMIT = 3;
-const LOW_RISK_SNIPPET_LENGTH = 420;
-const ELEVATED_RISK_SNIPPET_LENGTH = 420;
-const LOW_RISK_ERROR_LOG_LENGTH = 1200;
-const ELEVATED_RISK_ERROR_LOG_LENGTH = 1200;
-const codeContextCache = new Map<string, Promise<CodeContextEntry[]>>();
-
-function defaultRemediationForAgent(agentId: AgentId): string {
-  switch (agentId) {
-    case 'build_analyzer':
-      return 'Inspect the failing build step and apply the smallest compile-time fix before rerunning the pipeline.';
-    case 'code_reviewer':
-      return 'Inspect the referenced source file and apply the smallest code-level fix that matches the failure signal.';
-    case 'test_analyzer':
-      return 'Inspect the failing test or fixture and update the assertion, mock, or setup to match the intended behavior.';
-    case 'dependency_checker':
-      return 'Inspect the package and workspace dependency graph, then restore the missing dependency or compatible version.';
-  }
-}
 
 function extractJsonObject(input: string): string {
   const startIndex = input.indexOf('{');
@@ -100,113 +66,6 @@ function extractJsonObject(input: string): string {
   }
 
   return input.slice(startIndex, endIndex + 1);
-}
-
-function escapeControlCharactersInJson(input: string): string {
-  let result = '';
-  let inString = false;
-  let escaping = false;
-
-  for (const char of input) {
-    if (escaping) {
-      result += char;
-      escaping = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      result += char;
-      escaping = true;
-      continue;
-    }
-
-    if (char === '"') {
-      result += char;
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      if (char === '\n') {
-        result += '\\n';
-        continue;
-      }
-      if (char === '\r') {
-        result += '\\r';
-        continue;
-      }
-      if (char === '\t') {
-        result += '\\t';
-        continue;
-      }
-    }
-
-    result += char;
-  }
-
-  return result;
-}
-
-function parseJsonLenient(input: string): unknown {
-  return JSON.parse(escapeControlCharactersInJson(extractJsonObject(input)));
-}
-
-function coerceFindingPayload(agentId: AgentId, parsed: unknown) {
-  const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  const hypothesis =
-    typeof record.hypothesis === 'string' && record.hypothesis.trim().length > 0
-      ? record.hypothesis.trim()
-      : `${agentId.replaceAll('_', ' ')} returned incomplete structured output for this event.`;
-  const evidence =
-    Array.isArray(record.evidence)
-      ? record.evidence
-          .filter((entry): entry is string => typeof entry === 'string')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0)
-      : [];
-  const confidenceValue =
-    typeof record.confidence === 'number'
-      ? record.confidence
-      : typeof record.confidence === 'string'
-        ? Number(record.confidence)
-        : 0.15;
-  const proposedRemediation =
-    typeof record.proposedRemediation === 'string' && record.proposedRemediation.trim().length > 0
-      ? record.proposedRemediation.trim()
-      : defaultRemediationForAgent(agentId);
-
-  return {
-    hypothesis,
-    evidence:
-      evidence.length > 0
-        ? evidence
-        : ['The model returned partial structured output, so this finding was normalized locally.'],
-    confidence: clampConfidence(confidenceValue),
-    proposedRemediation,
-  };
-}
-
-function humanizeAgentError(reason: string): string {
-  if (
-    reason.includes('proposedRemediation') &&
-    reason.includes('String must contain at least 1 character')
-  ) {
-    return 'The model returned an incomplete finding without a concrete remediation.';
-  }
-
-  if (reason.includes('No JSON object found')) {
-    return 'The model returned unstructured text instead of JSON.';
-  }
-
-  if (reason.includes('Bad control character')) {
-    return 'The model returned malformed JSON content.';
-  }
-
-  if (reason.includes('Unexpected token') || reason.includes('is not valid JSON')) {
-    return 'The model returned malformed JSON content.';
-  }
-
-  return reason;
 }
 
 function clampConfidence(value: number): number {
@@ -314,9 +173,7 @@ function collectSearchTokens(errorLog: string, candidatePaths: string[]): string
     if (
       token.includes('-') ||
       token.includes('_') ||
-      ['undefined', 'warning', 'module', 'import', 'change', 'review'].includes(
-        token.toLowerCase(),
-      )
+      ['undefined', 'warning', 'module', 'import', 'change', 'review'].includes(token.toLowerCase())
     ) {
       tokens.add(token);
     }
@@ -329,79 +186,6 @@ function formatSnippetWithLineNumbers(lines: string[], startLine: number): strin
   return lines
     .map((line, index) => `${String(startLine + index).padStart(4, ' ')} | ${line}`)
     .join('\n');
-}
-
-function truncateText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength)}\n... [truncated]`;
-}
-
-export function isElevatedRiskPayload(
-  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
-): boolean {
-  const failureType = event.failureType.toLowerCase();
-  const errorLog = event.errorLog.toLowerCase();
-
-  return (
-    failureType.includes('test') ||
-    failureType.includes('build') ||
-    errorLog.includes('fail ') ||
-    errorLog.includes('test suites:') ||
-    errorLog.includes('expected:') ||
-    errorLog.includes('received:') ||
-    errorLog.includes('module not found') ||
-    errorLog.includes("can't resolve") ||
-    errorLog.includes('critical') ||
-    errorLog.includes('vulnerability') ||
-    errorLog.includes('cve-')
-  );
-}
-
-export function isLowRiskLintPayload(
-  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
-): boolean {
-  const failureType = event.failureType.toLowerCase();
-  const errorLog = event.errorLog.toLowerCase();
-
-  if (!failureType.includes('lint')) {
-    return false;
-  }
-
-  return (
-    errorLog.includes('eslint') ||
-    errorLog.includes('prettier') ||
-    errorLog.includes('lint/') ||
-    errorLog.includes('no-unescaped-entities') ||
-    errorLog.includes('unexpected') ||
-    errorLog.includes('format')
-  );
-}
-
-export function buildAgentPromptPayload(
-  event: PipelineEvent,
-  codeContext: CodeContextEntry[],
-): AgentPromptPayload {
-  const elevated = isElevatedRiskPayload(event);
-  const maxContextEntries = elevated ? ELEVATED_RISK_CONTEXT_LIMIT : LOW_RISK_CONTEXT_LIMIT;
-  const maxSnippetLength = elevated ? ELEVATED_RISK_SNIPPET_LENGTH : LOW_RISK_SNIPPET_LENGTH;
-  const maxErrorLogLength = elevated ? ELEVATED_RISK_ERROR_LOG_LENGTH : LOW_RISK_ERROR_LOG_LENGTH;
-
-  return {
-    eventId: event.eventId,
-    repository: event.repository,
-    commitSha: event.commitSha,
-    branch: event.branch,
-    failureType: event.failureType,
-    timestamp: event.timestamp.toISOString(),
-    errorLog: truncateText(event.errorLog, maxErrorLogLength),
-    codeContext: codeContext.slice(0, maxContextEntries).map((entry) => ({
-      ...entry,
-      snippet: truncateText(entry.snippet, maxSnippetLength),
-    })),
-  };
 }
 
 async function collectWorkspaceFiles(root: string): Promise<string[]> {
@@ -444,7 +228,10 @@ async function collectWorkspaceFiles(root: string): Promise<string[]> {
   return files;
 }
 
-function buildSnippetAroundMatch(raw: string, lineNumber?: number): { snippet: string; startLine: number; endLine: number } {
+function buildSnippetAroundMatch(
+  raw: string,
+  lineNumber?: number,
+): { snippet: string; startLine: number; endLine: number } {
   const fileLines = raw.split(/\r?\n/);
   const startLine = lineNumber ? Math.max(1, lineNumber - 8) : 1;
   const endLine = lineNumber
@@ -525,62 +312,44 @@ async function searchWorkspaceContext(
 }
 
 export async function loadCodeContext(event: PipelineEvent): Promise<CodeContextEntry[]> {
-  const cached = codeContextCache.get(event.eventId);
-  if (cached) {
-    return cached;
-  }
+  const cwd = process.cwd();
+  const snippets: CodeContextEntry[] = [];
+  const lineHints = parseLineHints(event.errorLog);
 
-  const contextPromise = (async () => {
-    const cwd = process.cwd();
-    const snippets: CodeContextEntry[] = [];
-    const lineHints = parseLineHints(event.errorLog);
+  for (const candidate of collectCandidatePaths(event.errorLog).slice(0, 3)) {
+    const absolutePath = path.resolve(cwd, candidate);
+    const relativePath = path.relative(cwd, absolutePath);
 
-    for (const candidate of collectCandidatePaths(event.errorLog).slice(0, 3)) {
-      const absolutePath = path.resolve(cwd, candidate);
-      const relativePath = path.relative(cwd, absolutePath);
-
-      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-        continue;
-      }
-
-      try {
-        const raw = await readFile(absolutePath, 'utf8');
-        const hintedLine = lineHints.get(candidate)?.[0];
-        const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, hintedLine);
-
-        snippets.push({
-          path: candidate,
-          snippet,
-          reason: hintedLine
-            ? `Referenced by the pipeline error log around line ${hintedLine}.`
-            : 'Referenced by the pipeline error log or import trace.',
-          startLine,
-          endLine,
-        });
-      } catch {
-        // Ignore missing files so the rest of the debate can continue.
-      }
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      continue;
     }
 
-    const repoMatches = isElevatedRiskPayload(event)
-      ? await searchWorkspaceContext(
-          cwd,
-          event.errorLog,
-          new Set(snippets.map((entry) => entry.path)),
-        )
-      : [];
+    try {
+      const raw = await readFile(absolutePath, 'utf8');
+      const hintedLine = lineHints.get(candidate)?.[0];
+      const { snippet, startLine, endLine } = buildSnippetAroundMatch(raw, hintedLine);
 
-    return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
-  })();
-
-  codeContextCache.set(event.eventId, contextPromise);
-
-  try {
-    return await contextPromise;
-  } catch (error) {
-    codeContextCache.delete(event.eventId);
-    throw error;
+      snippets.push({
+        path: candidate,
+        snippet,
+        reason: hintedLine
+          ? `Referenced by the pipeline error log around line ${hintedLine}.`
+          : 'Referenced by the pipeline error log or import trace.',
+        startLine,
+        endLine,
+      });
+    } catch {
+      // Ignore missing files so the rest of the debate can continue.
+    }
   }
+
+  const repoMatches = await searchWorkspaceContext(
+    cwd,
+    event.errorLog,
+    new Set(snippets.map((entry) => entry.path)),
+  );
+
+  return [...snippets, ...repoMatches].slice(0, MAX_CONTEXT_ENTRIES);
 }
 
 function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string): AgentFinding {
@@ -591,7 +360,11 @@ function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string)
         agentId,
         eventId: event.eventId,
         hypothesis: 'Code format strictly violated due to trailing whitespace in dummy.ts.',
-        evidence: ['failureType=lint_formatting_spacing', 'repository=acme/web-app', 'Trailing whitespace detected at line 1.'],
+        evidence: [
+          'failureType=lint_formatting_spacing',
+          'repository=acme/web-app',
+          'Trailing whitespace detected at line 1.',
+        ],
         confidence: 0.95,
         proposedRemediation: 'Remove trailing whitespace in packages/shared-types/src/dummy.ts',
       };
@@ -603,7 +376,7 @@ function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string)
         eventId: event.eventId,
         hypothesis: 'Strict linting tests failed pipeline execution.',
         evidence: ['eslint exited with code 1', 'Trailing spaces found in source files.'],
-        confidence: 0.70,
+        confidence: 0.7,
         proposedRemediation: 'Run linter with --fix and push the changes.',
       };
     }
@@ -622,7 +395,7 @@ function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string)
     findingId: randomUUID(),
     agentId,
     eventId: event.eventId,
-    hypothesis: `${agentId} could not complete analysis: ${humanizeAgentError(reason)}`,
+    hypothesis: `${agentId} could not complete analysis: ${reason}`,
     evidence: [
       `failureType=${event.failureType}`,
       `repository=${event.repository}`,
@@ -638,52 +411,33 @@ export async function analyzeWithPrompt(
   prompt: string,
   event: PipelineEvent,
 ): Promise<AgentFinding> {
-  if (
-    isLowRiskLintPayload(event) &&
-    (agentId === 'test_analyzer' || agentId === 'dependency_checker')
-  ) {
-    const hypothesis =
-      agentId === 'test_analyzer'
-        ? 'The failure is a lint-only issue, not a test regression, so no test-specific root cause is indicated.'
-        : 'The failure is a lint-only issue, so there is no concrete dependency conflict or package breakage signal in the log.';
-
-    const proposedRemediation =
-      agentId === 'test_analyzer'
-        ? 'No test fix is needed yet. Resolve the lint violation first, then rerun the pipeline to confirm tests remain healthy.'
-        : 'No dependency change is needed yet. Fix the lint violation in the referenced file before changing package versions or workspace links.';
-
-    return {
-      findingId: randomUUID(),
-      agentId,
-      eventId: event.eventId,
-      hypothesis,
-      evidence: [
-        `failureType=${event.failureType}`,
-        'The error log only references linting/formatting violations.',
-        'No failing test, stack trace, or dependency-resolution error is present.',
-      ],
-      confidence: 0.18,
-      proposedRemediation,
-    };
-  }
-
   const codeContext = await loadCodeContext(event);
-  const userMessage = JSON.stringify(buildAgentPromptPayload(event, codeContext), null, 2);
+  const userMessage = JSON.stringify(
+    {
+      eventId: event.eventId,
+      repository: event.repository,
+      commitSha: event.commitSha,
+      branch: event.branch,
+      failureType: event.failureType,
+      timestamp: event.timestamp.toISOString(),
+      errorLog: event.errorLog,
+      codeContext,
+    },
+    null,
+    2,
+  );
 
   try {
-    const response = await fastChat(
-      [
-        { role: 'system', content: prompt },
-        {
-          role: 'user',
-          content: `Analyze this pipeline event and return only JSON.\n${userMessage}`,
-        },
-      ],
-      FALLBACK_CHAT_MODEL,
-    );
+    const response = await chat([
+      { role: 'system', content: prompt },
+      {
+        role: 'user',
+        content: `Analyze this pipeline event and return only JSON.\n${userMessage}`,
+      },
+    ]);
 
-    const parsed = parseJsonLenient(response);
-    const finding = findingPayloadSchema.parse(coerceFindingPayload(agentId, parsed));
+    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const finding = findingPayloadSchema.parse(parsed);
 
     return {
       findingId: randomUUID(),
@@ -706,7 +460,7 @@ export function createTimeoutFinding(agentId: AgentId, event: PipelineEvent): Ag
     agentId,
     eventId: event.eventId,
     hypothesis: 'TIMEOUT: agent did not respond within the Round 0 time limit.',
-    evidence: ['Round 0 analysis exceeded the 45 second timeout window.'],
+    evidence: ['Round 0 analysis exceeded the 30 second timeout window.'],
     confidence: 0,
     proposedRemediation: 'Retry the debate run or inspect the raw error log manually.',
   };
@@ -750,22 +504,19 @@ Rules:
   );
 
   try {
-    const response = await fastChat(
-      [
-        { role: 'system', content: prompt },
-        {
-          role: 'user',
-          content: `Evaluate whether a challenge is warranted.\n${userMessage}`,
-        },
-      ],
-      FALLBACK_CHAT_MODEL,
-    );
+    const response = await chat([
+      { role: 'system', content: prompt },
+      {
+        role: 'user',
+        content: `Evaluate whether a challenge is warranted.\n${userMessage}`,
+      },
+    ]);
 
     if (response.trim() === 'NO_CHALLENGE') {
       return null;
     }
 
-    const parsed = parseJsonLenient(response);
+    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
     const challenge = challengePayloadSchema.parse(parsed);
 
     if (challenge.targetAgentId === agentId || challenge.evidence.length === 0) {
@@ -781,9 +532,9 @@ Rules:
       confidence: clampConfidence(challenge.confidence),
     };
   } catch {
-    const isMockScenario = otherFindings.some(f => f.hypothesis.includes('dummy.ts'));
+    const isMockScenario = otherFindings.some((f) => f.hypothesis.includes('dummy.ts'));
     if (isMockScenario && agentId === 'build_analyzer') {
-      const target = otherFindings.find(f => f.agentId === 'code_reviewer');
+      const target = otherFindings.find((f) => f.agentId === 'code_reviewer');
       if (target) {
         return {
           challengeId: randomUUID(),
@@ -796,15 +547,16 @@ Rules:
       }
     }
     if (isMockScenario && agentId === 'dependency_checker') {
-      const target = otherFindings.find(f => f.agentId === 'test_analyzer');
+      const target = otherFindings.find((f) => f.agentId === 'test_analyzer');
       if (target) {
         return {
           challengeId: randomUUID(),
           challengerAgentId: agentId,
           targetAgentId: target.agentId,
-          counterHypothesis: 'Lint pipeline is separate from actual test runner, unit tests theoretically pass.',
+          counterHypothesis:
+            'Lint pipeline is separate from actual test runner, unit tests theoretically pass.',
           evidence: ['jest reported 0 unit test failures, only eslint failed'],
-          confidence: 0.60,
+          confidence: 0.6,
         };
       }
     }
@@ -857,18 +609,15 @@ Rules:
   );
 
   try {
-    const response = await fastChat(
-      [
-        { role: 'system', content: prompt },
-        {
-          role: 'user',
-          content: `Respond to this challenge.\n${userMessage}`,
-        },
-      ],
-      FALLBACK_CHAT_MODEL,
-    );
+    const response = await chat([
+      { role: 'system', content: prompt },
+      {
+        role: 'user',
+        content: `Respond to this challenge.\n${userMessage}`,
+      },
+    ]);
 
-    const parsed = parseJsonLenient(response);
+    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
     const rebuttal = rebuttalPayloadSchema.parse(parsed);
 
     return {
@@ -880,7 +629,8 @@ Rules:
       rebuttalFactor: rebuttal.position === 'DEFEND' ? 0.85 : 0.7,
     };
   } catch {
-    const isMockScenario = myFinding.hypothesis.includes('dummy.ts') || myFinding.agentId === 'test_analyzer';
+    const isMockScenario =
+      myFinding.hypothesis.includes('dummy.ts') || myFinding.agentId === 'test_analyzer';
     if (isMockScenario && agentId === 'code_reviewer') {
       return {
         rebuttalId: randomUUID(),
@@ -897,8 +647,8 @@ Rules:
         respondingAgentId: agentId,
         challengeId: challenge.challengeId,
         position: 'CONCEDE',
-        updatedConfidence: 0.40,
-        rebuttalFactor: 0.70,
+        updatedConfidence: 0.4,
+        rebuttalFactor: 0.7,
       };
     }
     return defaultRebuttal(agentId, challenge);

@@ -21,22 +21,12 @@ import {
   dependencyCheckerAgent,
   testAnalyzerAgent,
 } from '../agents/index.js';
-import {
-  createTimeoutFinding,
-  fallbackDecision,
-  isElevatedRiskPayload,
-  isLowRiskLintPayload,
-} from '../agents/utils.js';
+import { createTimeoutFinding, fallbackDecision } from '../agents/utils.js';
 
 import { logger } from '../logger.js';
 import { applyAutoMitigationLocally } from '../scripts/auto-mitigator.js';
 import { judgePrompt } from '../prompts/judge.js';
 import { createDebateStartedPayload, emitDebateEvent } from '../realtime.js';
-import {
-  isEventCancelled,
-  markEventCompleted,
-  markEventRunning,
-} from './runtime-state.js';
 import {
   executeAdkChallenge,
   executeAdkJudge,
@@ -45,8 +35,6 @@ import {
   getAdkWorkflowSummary,
 } from '../adk/workflow.js';
 
-const FALLBACK_JUDGE_MODEL = 'llama-3.1-8b-instant';
-
 const analysisAgents = [
   buildAnalyzerAgent,
   codeReviewerAgent,
@@ -54,10 +42,8 @@ const analysisAgents = [
   dependencyCheckerAgent,
 ] as const;
 
-const ROUND_0_TIMEOUT_MS = 45_000;
-const ROUND_1_TIMEOUT_MS = 20_000;
-const ROUND_2_TIMEOUT_MS = 25_000;
-const ELEVATED_ROUND_0_TIMEOUT_MS = 60_000;
+const ROUND_0_TIMEOUT_MS = 30_000;
+const ROUND_2_TIMEOUT_MS = 20_000;
 
 const domainWeights: Record<AgentId, number> = {
   build_analyzer: 0.3,
@@ -73,10 +59,6 @@ interface DebateRoundOptions {
 interface RoundResult<T> {
   data: T;
   source: RoundExecutionSource;
-}
-
-function shouldStopDebate(eventId: string): boolean {
-  return isEventCancelled(eventId);
 }
 
 async function withTimeout<T>(
@@ -104,7 +86,6 @@ async function persistFindings(findings: AgentFinding[], eventId: string): Promi
       evidence: finding.evidence,
       confidence: finding.confidence,
       proposedRemediation: finding.proposedRemediation,
-      toolTrace: (finding as AgentFinding & { toolTrace?: unknown }).toolTrace,
       timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
     })),
   );
@@ -138,7 +119,10 @@ async function persistChallenges(foundChallenges: Challenge[], eventId: string):
   );
 }
 
-async function emitRoundOneChallenges(eventId: string, foundChallenges: Challenge[]): Promise<void> {
+async function emitRoundOneChallenges(
+  eventId: string,
+  foundChallenges: Challenge[],
+): Promise<void> {
   for (const challenge of foundChallenges) {
     await emitDebateEvent('round:1:challenge', eventId, {
       eventId,
@@ -208,11 +192,7 @@ function validateChallenge(challenge: Challenge | null): Challenge | null {
 }
 
 function isWeakFinding(finding: AgentFinding): boolean {
-  const haystack = [
-    finding.hypothesis,
-    ...finding.evidence,
-    finding.proposedRemediation,
-  ]
+  const haystack = [finding.hypothesis, ...finding.evidence, finding.proposedRemediation]
     .join(' ')
     .toLowerCase();
 
@@ -260,37 +240,19 @@ function validateRebuttal(rebuttal: Rebuttal | null): Rebuttal | null {
     return null;
   }
 
-  if (typeof rebuttal.rebuttalFactor !== 'number' || rebuttal.rebuttalFactor < 0 || rebuttal.rebuttalFactor > 1) { return null; }
+  if (
+    typeof rebuttal.rebuttalFactor !== 'number' ||
+    rebuttal.rebuttalFactor < 0 ||
+    rebuttal.rebuttalFactor > 1
+  ) {
+    return null;
+  }
 
   if (rebuttal.updatedConfidence < 0 || rebuttal.updatedConfidence > 1) {
     return null;
   }
 
   return rebuttal;
-}
-
-function normalizeRebuttalConfidence(
-  rebuttal: Rebuttal,
-  findings: AgentFinding[],
-): Rebuttal {
-  const targetFinding = findings.find((finding) => finding.agentId === rebuttal.respondingAgentId);
-  const originalConfidence = targetFinding?.confidence ?? 0.5;
-
-  if (rebuttal.position === 'CONCEDE') {
-    const cappedConfidence = Math.max(0.05, Math.min(originalConfidence * 0.7, originalConfidence - 0.1));
-    return {
-      ...rebuttal,
-      updatedConfidence: Math.min(rebuttal.updatedConfidence, cappedConfidence),
-      rebuttalFactor: 0.7,
-    };
-  }
-
-  const defendedConfidence = Math.max(rebuttal.updatedConfidence, Math.min(originalConfidence, 0.45));
-  return {
-    ...rebuttal,
-    updatedConfidence: Math.max(0.05, Math.min(1, defendedConfidence)),
-    rebuttalFactor: 0.85,
-  };
 }
 
 function synthesizeHeuristicRebuttals(
@@ -367,138 +329,22 @@ function getFinalizedFindings(
   });
 }
 
-export function calibrateFindingsForEvent(
-  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
-  findings: AgentFinding[],
-): AgentFinding[] {
-  const errorLog = event.errorLog.toLowerCase();
-  const hasLintOnlySignal =
-    event.failureType === 'lint_error' ||
-    errorLog.includes('eslint') ||
-    errorLog.includes('prettier') ||
-    errorLog.includes('comma-dangle') ||
-    errorLog.includes('no-multi-spaces') ||
-    errorLog.includes('react-hooks/exhaustive-deps');
-  const hasDeterministicTestSignal =
-    errorLog.includes('expected:') ||
-    errorLog.includes('received:') ||
-    errorLog.includes('test suites:') ||
-    errorLog.includes('tests:');
-  const hasCriticalBuildOrSecuritySignal =
-    errorLog.includes('critical') ||
-    errorLog.includes('vulnerability') ||
-    errorLog.includes('cve-') ||
-    errorLog.includes('module not found') ||
-    errorLog.includes("can't resolve") ||
-    errorLog.includes('fatal error') ||
-    errorLog.includes('security gate');
-
-  return findings.map((finding) => {
-    if (hasLintOnlySignal && !hasCriticalBuildOrSecuritySignal) {
-      if (finding.agentId === 'test_analyzer') {
-        return {
-          ...finding,
-          confidence: Math.min(finding.confidence, 0.18),
-          hypothesis: 'This event is a lint-only pipeline failure, so test risk is secondary.',
-        };
-      }
-
-      if (finding.agentId === 'dependency_checker') {
-        return {
-          ...finding,
-          confidence: Math.min(finding.confidence, 0.12),
-          hypothesis: 'No dependency-level signal is evident in this lint-only event.',
-        };
-      }
-
-      if (finding.agentId === 'build_analyzer') {
-        return {
-          ...finding,
-          confidence: Math.min(Math.max(finding.confidence, 0.3), 0.45),
-        };
-      }
-    }
-
-    if (event.failureType === 'test_failure' && hasDeterministicTestSignal && !hasCriticalBuildOrSecuritySignal) {
-      if (finding.agentId === 'dependency_checker') {
-        return {
-          ...finding,
-          confidence: Math.min(finding.confidence, 0.15),
-          hypothesis: 'No dependency fault is strongly evidenced in this isolated unit-test failure.',
-        };
-      }
-
-      if (finding.agentId === 'build_analyzer') {
-        return {
-          ...finding,
-          confidence: Math.min(finding.confidence, 0.3),
-          hypothesis: 'Build infrastructure appears healthy enough to execute the failing test.',
-        };
-      }
-    }
-
-    return finding;
-  });
-}
-
 export function calculateCompositeScore(
   findings: AgentFinding[],
   foundChallenges: Challenge[],
   foundRebuttals: Rebuttal[],
 ): number {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
-  let weightedScoreSum = 0;
-  let weightSum = 0;
 
+  let maxScore = 0;
   for (const finding of finalizedFindings) {
-    const domainWeight = domainWeights[finding.agentId] ?? 0;
     const score = finding.effectiveConfidence * finding.rebuttalFactor;
-    weightedScoreSum += score * domainWeight;
-    weightSum += domainWeight;
+    if (score > maxScore) {
+      maxScore = score;
+    }
   }
 
-  if (weightSum === 0) {
-    return 0;
-  }
-
-  return weightedScoreSum / weightSum;
-}
-
-export function calibrateCompositeScore(
-  event: Pick<PipelineEvent, 'failureType' | 'errorLog'>,
-  compositeScore: number,
-): number {
-  const errorLog = event.errorLog.toLowerCase();
-  const hasCriticalBuildOrSecuritySignal =
-    errorLog.includes('critical') ||
-    errorLog.includes('vulnerability') ||
-    errorLog.includes('cve-') ||
-    errorLog.includes('module not found') ||
-    errorLog.includes("can't resolve") ||
-    errorLog.includes('fatal error') ||
-    errorLog.includes('security gate');
-  const hasDeterministicTestSignal =
-    errorLog.includes('expected:') ||
-    errorLog.includes('received:') ||
-    errorLog.includes('test suites:') ||
-    errorLog.includes('tests:');
-  const hasLintOnlySignal =
-    event.failureType === 'lint_error' ||
-    errorLog.includes('eslint') ||
-    errorLog.includes('prettier') ||
-    errorLog.includes('comma-dangle') ||
-    errorLog.includes('no-multi-spaces') ||
-    errorLog.includes('react-hooks/exhaustive-deps');
-
-  if (hasLintOnlySignal && !hasCriticalBuildOrSecuritySignal && !hasDeterministicTestSignal) {
-    return Math.max(0, Math.min(1, compositeScore * 0.55));
-  }
-
-  if (event.failureType === 'test_failure' && hasDeterministicTestSignal && !hasCriticalBuildOrSecuritySignal) {
-    return Math.max(0, Math.min(1, compositeScore * 0.78));
-  }
-
-  return Math.max(0, Math.min(1, compositeScore));
+  return maxScore;
 }
 
 async function synthesizeDecision(
@@ -514,19 +360,13 @@ async function synthesizeDecision(
   source: RoundExecutionSource;
 }> {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
-  const elevatedRiskPayload = isElevatedRiskPayload(event);
-  const adkJudge = elevatedRiskPayload
-    ? {
-        status: 'failed' as const,
-        errorMessage: 'Skipped ADK judge for elevated-risk payload to keep orchestration responsive.',
-      }
-    : await executeAdkJudge({
-        event,
-        findings: finalizedFindings,
-        rebuttals: foundRebuttals,
-        compositeScore,
-        riskTier,
-      });
+  const adkJudge = await executeAdkJudge({
+    event,
+    findings: finalizedFindings,
+    rebuttals: foundRebuttals,
+    compositeScore,
+    riskTier,
+  });
 
   if (adkJudge.status === 'completed' && adkJudge.reasoning && adkJudge.recommendedAction) {
     return {
@@ -542,26 +382,23 @@ async function synthesizeDecision(
   });
 
   try {
-    const response = await chat(
-      [
-        { role: 'system', content: judgePrompt },
-        {
-          role: 'user',
-          content: JSON.stringify(
-            {
-              event,
-              findings: finalizedFindings,
-              rebuttals: foundRebuttals,
-              compositeScore,
-              riskTier,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-      FALLBACK_JUDGE_MODEL,
-    );
+    const response = await chat([
+      { role: 'system', content: judgePrompt },
+      {
+        role: 'user',
+        content: JSON.stringify(
+          {
+            event,
+            findings: finalizedFindings,
+            rebuttals: foundRebuttals,
+            compositeScore,
+            riskTier,
+          },
+          null,
+          2,
+        ),
+      },
+    ]);
 
     const parsed = JSON.parse(
       response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1),
@@ -599,16 +436,7 @@ export async function runInitialAnalysis(
   event: PipelineEvent,
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<AgentFinding[]>> {
-  const elevatedRiskPayload = isElevatedRiskPayload(event);
-  const shouldBypassAdkRoundZero = elevatedRiskPayload || isLowRiskLintPayload(event);
-
-  const adkRoundZero = shouldBypassAdkRoundZero
-    ? {
-        status: 'failed' as const,
-        findings: [] as AgentFinding[],
-        errorMessage: 'Skipped ADK round zero for this payload to keep analysis responsive.',
-      }
-    : await executeAdkRoundZero(event);
+  const adkRoundZero = await executeAdkRoundZero(event);
 
   if (
     adkRoundZero.status === 'completed' &&
@@ -641,51 +469,27 @@ export async function runInitialAnalysis(
     errorMessage: adkRoundZero.errorMessage,
   });
 
-  const findings: AgentFinding[] = [];
-
-  if (elevatedRiskPayload) {
-    for (const agent of analysisAgents) {
-      try {
-        const finding = await withTimeout(
-          agent.analyze(event),
-          ELEVATED_ROUND_0_TIMEOUT_MS,
-          () => createTimeoutFinding(agent.agentId, event),
-        );
-        findings.push(finding);
-      } catch (error) {
-        logger.warn('Sequential elevated-risk analysis failed, using timeout/error fallback.', {
-          eventId: event.eventId,
-          agentId: agent.agentId,
-          error,
-        });
-        findings.push(createTimeoutFinding(agent.agentId, event));
-      }
-    }
-  } else {
-    const settledFindings = await Promise.allSettled(
-      analysisAgents.map((agent) =>
-        withTimeout(agent.analyze(event), ROUND_0_TIMEOUT_MS, () =>
-          createTimeoutFinding(agent.agentId, event),
-        ),
+  const settledFindings = await Promise.allSettled(
+    analysisAgents.map((agent) =>
+      withTimeout(agent.analyze(event), ROUND_0_TIMEOUT_MS, () =>
+        createTimeoutFinding(agent.agentId, event),
       ),
-    );
+    ),
+  );
 
-    findings.push(
-      ...settledFindings.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value;
-        }
+  const findings = settledFindings.map((result, index) => {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    }
 
-        logger.warn('Agent analysis failed, using timeout/error fallback.', {
-          eventId: event.eventId,
-          agentId: analysisAgents[index].agentId,
-          error: result.reason,
-        });
+    logger.warn('Agent analysis failed, using timeout/error fallback.', {
+      eventId: event.eventId,
+      agentId: analysisAgents[index].agentId,
+      error: result.reason,
+    });
 
-        return createTimeoutFinding(analysisAgents[index].agentId, event);
-      }),
-    );
-  }
+    return createTimeoutFinding(analysisAgents[index].agentId, event);
+  });
 
   if (options.persist ?? true) {
     await persistFindings(findings, event.eventId);
@@ -709,16 +513,11 @@ export async function runInitialAnalysis(
 }
 
 export async function runCrossChallenges(
-  event: PipelineEvent,
   findings: AgentFinding[],
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Challenge[]>> {
   const eventId = findings[0]?.eventId;
-  const elevatedRiskPayload = isElevatedRiskPayload(event);
-  const shouldBypassAdkChallenges = elevatedRiskPayload;
-  const adkChallenges = shouldBypassAdkChallenges
-    ? analysisAgents.map(() => ({ status: 'failed' as const, challenge: null }))
-    : await Promise.all(
+  const adkChallenges = await Promise.all(
     analysisAgents.map(async (agent) => {
       const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
       const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
@@ -782,35 +581,18 @@ export async function runCrossChallenges(
     };
   }
 
-  const nativeChallengePromises = analysisAgents.map((agent) => {
-    const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
-    const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
+  const settledChallenges = await Promise.allSettled(
+    analysisAgents.map((agent) => {
+      const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
+      const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
 
-    if (!myFinding) {
-      return Promise.resolve(null);
-    }
+      if (!myFinding) {
+        return Promise.resolve(null);
+      }
 
-    return withTimeout(agent.challenge(myFinding, otherFindings), ROUND_1_TIMEOUT_MS, () => null);
-  });
-  const settledChallenges = elevatedRiskPayload
-    ? await (async () => {
-        const sequentialResults: PromiseSettledResult<Challenge | null>[] = [];
-        for (const promise of nativeChallengePromises) {
-          try {
-            sequentialResults.push({
-              status: 'fulfilled',
-              value: await promise,
-            });
-          } catch (error) {
-            sequentialResults.push({
-              status: 'rejected',
-              reason: error,
-            });
-          }
-        }
-        return sequentialResults;
-      })()
-    : await Promise.allSettled(nativeChallengePromises);
+      return agent.challenge(myFinding, otherFindings);
+    }),
+  );
 
   const validChallenges = settledChallenges
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
@@ -844,17 +626,12 @@ export async function runCrossChallenges(
 }
 
 export async function runRebuttals(
-  event: PipelineEvent,
   findings: AgentFinding[],
   foundChallenges: Challenge[],
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Rebuttal[]>> {
   const eventId = findings[0]?.eventId;
-  const elevatedRiskPayload = isElevatedRiskPayload(event);
-  const shouldBypassAdkRebuttals = elevatedRiskPayload;
-  const adkRebuttalResults = shouldBypassAdkRebuttals
-    ? foundChallenges.map(() => ({ status: 'failed' as const, rebuttal: null }))
-    : await Promise.all(
+  const adkRebuttalResults = await Promise.all(
     foundChallenges.map(async (challenge) => {
       const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
 
@@ -887,7 +664,6 @@ export async function runRebuttals(
 
   const adkValidRebuttals = adkRebuttalResults
     .map((result) => validateRebuttal(result.rebuttal))
-    .map((rebuttal) => (rebuttal ? normalizeRebuttalConfidence(rebuttal, findings) : null))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
   const heuristicRebuttals =
     foundChallenges.length > 0 && adkValidRebuttals.length === 0
@@ -921,50 +697,34 @@ export async function runRebuttals(
     };
   }
 
-  const nativeRebuttalPromises = foundChallenges.map((challenge) => {
-    const targetAgent = analysisAgents.find((agent) => agent.agentId === challenge.targetAgentId);
-    const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+  const settledRebuttals = await Promise.allSettled(
+    foundChallenges.map((challenge) => {
+      const targetAgent = analysisAgents.find((agent) => agent.agentId === challenge.targetAgentId);
+      const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
 
-    if (!targetAgent || !myFinding) {
-      return Promise.resolve(null);
-    }
+      if (!targetAgent || !myFinding) {
+        return Promise.resolve(null);
+      }
 
-    return withTimeout(targetAgent.rebuttal(myFinding, challenge), ROUND_2_TIMEOUT_MS, () => ({
-      rebuttalId: randomUUID(),
-      respondingAgentId: challenge.targetAgentId,
-      challengeId: challenge.challengeId,
-      position: 'DEFEND' as const,
-      updatedConfidence: myFinding.confidence,
-      rebuttalFactor: 0.85 as const,
-    }));
-  });
-  const settledRebuttals = elevatedRiskPayload
-    ? await (async () => {
-        const sequentialResults: PromiseSettledResult<Rebuttal | null>[] = [];
-        for (const promise of nativeRebuttalPromises) {
-          try {
-            sequentialResults.push({
-              status: 'fulfilled',
-              value: await promise,
-            });
-          } catch (error) {
-            sequentialResults.push({
-              status: 'rejected',
-              reason: error,
-            });
-          }
-        }
-        return sequentialResults;
-      })()
-    : await Promise.allSettled(nativeRebuttalPromises);
+      return withTimeout(targetAgent.rebuttal(myFinding, challenge), ROUND_2_TIMEOUT_MS, () => ({
+        rebuttalId: randomUUID(),
+        respondingAgentId: challenge.targetAgentId,
+        challengeId: challenge.challengeId,
+        position: 'DEFEND' as const,
+        updatedConfidence: myFinding.confidence,
+        rebuttalFactor: 0.85 as const,
+      }));
+    }),
+  );
 
   const validRebuttals = settledRebuttals
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
     .map((rebuttal) => validateRebuttal(rebuttal))
-    .map((rebuttal) => (rebuttal ? normalizeRebuttalConfidence(rebuttal, findings) : null))
     .filter((rebuttal): rebuttal is Rebuttal => rebuttal !== null);
   const finalizedNativeRebuttals =
-    validRebuttals.length > 0 ? validRebuttals : synthesizeHeuristicRebuttals(findings, foundChallenges);
+    validRebuttals.length > 0
+      ? validRebuttals
+      : synthesizeHeuristicRebuttals(findings, foundChallenges);
 
   if (eventId && (options.persist ?? true)) {
     await persistRebuttals(finalizedNativeRebuttals, eventId);
@@ -998,13 +758,11 @@ export async function runJudgeSynthesis(
   executionMeta: ExecutionMeta,
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Decision>> {
-  const calibratedFindings = calibrateFindingsForEvent(event, findings);
-  const rawCompositeScore = calculateCompositeScore(calibratedFindings, foundChallenges, foundRebuttals);
-  const compositeScore = calibrateCompositeScore(event, rawCompositeScore);
+  const compositeScore = calculateCompositeScore(findings, foundChallenges, foundRebuttals);
   const riskTier = classifyRiskTier(compositeScore);
   const synthesis = await synthesizeDecision(
     event,
-    calibratedFindings,
+    findings,
     foundChallenges,
     foundRebuttals,
     compositeScore,
@@ -1048,84 +806,61 @@ export async function runJudgeSynthesis(
 }
 
 export async function runDebate(event: PipelineEvent): Promise<void> {
-  markEventRunning(event.eventId);
   const adkWorkflow = getAdkWorkflowSummary();
-  try {
-    await emitDebateEvent('debate:started', event.eventId, createDebateStartedPayload(event));
+  await emitDebateEvent('debate:started', event.eventId, createDebateStartedPayload(event));
 
-    const initialAnalysis = await runInitialAnalysis(event);
-    if (shouldStopDebate(event.eventId)) {
-      logger.info('Debate cancelled after Round 0.', { eventId: event.eventId });
-      return;
+  const initialAnalysis = await runInitialAnalysis(event);
+  const crossChallenges = await runCrossChallenges(initialAnalysis.data);
+  const rebuttals = await runRebuttals(initialAnalysis.data, crossChallenges.data);
+  const executionMeta: ExecutionMeta = {
+    round0: initialAnalysis.source,
+    round1: crossChallenges.source,
+    round2: rebuttals.source,
+    round3: 'NATIVE',
+  };
+  const judgeSynthesis = await runJudgeSynthesis(
+    event,
+    initialAnalysis.data,
+    crossChallenges.data,
+    rebuttals.data,
+    executionMeta,
+  );
+
+  logger.info('Debate pipeline complete.', {
+    eventId: event.eventId,
+    repository: event.repository,
+    adkWorkflow,
+    executionMeta,
+    findings: initialAnalysis.data,
+    foundChallenges: crossChallenges.data,
+    foundRebuttals: rebuttals.data,
+    decision: judgeSynthesis.data,
+  });
+
+  if (judgeSynthesis.data.riskTier === 'LOW') {
+    let diffContent: string | null = null;
+    try {
+      diffContent = await applyAutoMitigationLocally(
+        event.branch,
+        judgeSynthesis.data.recommendedAction,
+      );
+    } catch (e) {
+      logger.error('Failed to write and push automated fix.', { error: e });
     }
 
-    const crossChallenges = await runCrossChallenges(event, initialAnalysis.data);
-    if (shouldStopDebate(event.eventId)) {
-      logger.info('Debate cancelled after Round 1.', { eventId: event.eventId });
-      return;
-    }
-
-    const rebuttals = await runRebuttals(event, initialAnalysis.data, crossChallenges.data);
-    if (shouldStopDebate(event.eventId)) {
-      logger.info('Debate cancelled after Round 2.', { eventId: event.eventId });
-      return;
-    }
-
-    const executionMeta: ExecutionMeta = {
-      round0: initialAnalysis.source,
-      round1: crossChallenges.source,
-      round2: rebuttals.source,
-      round3: 'NATIVE',
-    };
-    const judgeSynthesis = await runJudgeSynthesis(
-      event,
-      initialAnalysis.data,
-      crossChallenges.data,
-      rebuttals.data,
-      executionMeta,
-    );
-
-    logger.info('Debate pipeline complete.', {
-      eventId: event.eventId,
-      repository: event.repository,
-      adkWorkflow,
-      executionMeta,
-      findings: initialAnalysis.data,
-      foundChallenges: crossChallenges.data,
-      foundRebuttals: rebuttals.data,
-      decision: judgeSynthesis.data,
+    await db.insert(approvals).values({
+      approvalId: randomUUID(),
+      decisionId: judgeSynthesis.data.decisionId,
+      approver: 'Auto-Mitigator',
+      action: 'APPROVE',
+      justification: 'Automated mitigation for LOW risk pipeline failure.',
+      timestamp: new Date(),
+      mitigationDiff: diffContent,
     });
 
-    if (!shouldStopDebate(event.eventId) && judgeSynthesis.data.riskTier === 'LOW') {
-      let diffContent: string | null = null;
-      try {
-        diffContent = await applyAutoMitigationLocally(
-          event.branch,
-          judgeSynthesis.data.recommendedAction,
-        );
-      } catch (e) {
-        logger.error('Failed to write and push automated fix.', { error: e });
-      }
-
-      await db.insert(approvals).values({
-        approvalId: randomUUID(),
-        decisionId: judgeSynthesis.data.decisionId,
-        approver: 'Auto-Mitigator',
-        action: 'APPROVE',
-        justification: 'Automated mitigation for LOW risk pipeline failure.',
-        timestamp: new Date(),
-        mitigationDiff: diffContent,
-      });
-
-      logger.info('Low risk decision automatically mitigated.', {
-        eventId: event.eventId,
-        decisionId: judgeSynthesis.data.decisionId,
-      });
-    }
-  } finally {
-    if (!shouldStopDebate(event.eventId)) {
-      markEventCompleted(event.eventId);
-    }
+    logger.info('Low risk decision automatically mitigated.', {
+      eventId: event.eventId,
+      decisionId: judgeSynthesis.data.decisionId,
+    });
   }
 }
-

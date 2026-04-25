@@ -2,13 +2,11 @@ import { initTRPC } from '@trpc/server';
 import { z } from 'zod';
 
 import {
-  cancelEvent,
   fetchGitHubDiff,
   getDecision,
   listApprovalQueue,
   listAutoMitigations,
   listDecisions,
-  listWorkflows,
   submitApproval,
   submitEvent,
 } from '../orchestrator';
@@ -46,20 +44,18 @@ export const appRouter = t.router({
     timestamp: new Date().toISOString(),
   })),
   dashboardSummary: t.procedure.query(async () => {
-    const [decisions, approvals, workflows] = await Promise.all([
-      listDecisions(),
-      listApprovalQueue(),
-      listWorkflows(),
-    ]);
+    const [decisions, approvals] = await Promise.all([listDecisions(), listApprovalQueue()]);
 
     const totalEvents = decisions.length;
     const low = decisions.filter((item) => item.riskTier === 'LOW').length;
     const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
     const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
-    const activeWorkflows = workflows.filter(
-      (item) => item.status !== 'JUDGED' && item.status !== 'CANCELLED',
+    const adkDominant = decisions.filter((item) =>
+      Object.values(item.executionMeta).every((source) => source === 'ADK'),
     ).length;
-    const contestedDebates = workflows.filter((item) => (item.counts?.challenges ?? 0) > 0).length;
+    const fallbackTouched = decisions.filter((item) =>
+      Object.values(item.executionMeta).some((source) => source === 'NATIVE'),
+    ).length;
     const avgCompositeScore =
       totalEvents === 0
         ? 0
@@ -72,8 +68,8 @@ export const appRouter = t.router({
       low,
       medium,
       high,
-      activeWorkflows,
-      contestedDebates,
+      adkDominant,
+      fallbackTouched,
     };
   }),
   decisionByEventId: t.procedure.input(z.string().uuid()).query(async ({ input }) => {
@@ -88,17 +84,11 @@ export const appRouter = t.router({
   recentDecisions: t.procedure.query(async () => {
     return listDecisions();
   }),
-  workflows: t.procedure.query(async () => {
-    return listWorkflows();
-  }),
   submitEvent: t.procedure.input(submitEventSchema).mutation(async ({ input }) => {
     return submitEvent(input);
   }),
   submitApproval: t.procedure.input(submitApprovalSchema).mutation(async ({ input }) => {
     return submitApproval(input);
-  }),
-  cancelEvent: t.procedure.input(z.string().uuid()).mutation(async ({ input }) => {
-    return cancelEvent(input);
   }),
   githubDiff: t.procedure.input(githubDiffSchema).query(async ({ input }) => {
     return fetchGitHubDiff(input.repo, input.pr);

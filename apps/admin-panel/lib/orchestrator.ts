@@ -1,11 +1,4 @@
-const defaultOrchestratorUrls = [
-  process.env.ORCHESTRATOR_URL,
-  process.env.NEXT_PUBLIC_ORCHESTRATOR_URL,
-  'http://127.0.0.1:4000',
-  'http://localhost:4000',
-].filter((value): value is string => Boolean(value));
-
-const orchestratorUrls = [...new Set(defaultOrchestratorUrls)];
+const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:4000';
 
 export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
 export type RoundExecutionSource = 'ADK' | 'NATIVE';
@@ -30,65 +23,6 @@ export interface DecisionListItem {
   branch: string;
 }
 
-export type WorkflowStatus =
-  | 'STARTED'
-  | 'ANALYZING'
-  | 'CHALLENGING'
-  | 'REBUTTING'
-  | 'JUDGED'
-  | 'CANCELLED';
-
-export type WorkflowAgentId =
-  | 'build_analyzer'
-  | 'code_reviewer'
-  | 'test_analyzer'
-  | 'dependency_checker'
-  | 'judge';
-
-export interface WorkflowAgentSnapshot {
-  agentId: WorkflowAgentId;
-  confidence: number | null;
-  previousConfidence?: number | null;
-  status:
-    | 'idle'
-    | 'analyzing'
-    | 'finding_ready'
-    | 'challenging'
-    | 'defending'
-    | 'conceding'
-    | 'judging';
-  rebuttalPosition?: 'DEFEND' | 'CONCEDE' | null;
-}
-
-export interface WorkflowListItem {
-  eventId: string;
-  repository: string;
-  branch: string;
-  commitSha: string;
-  failureType: string;
-  status: WorkflowStatus;
-  createdAt: string;
-  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
-  timestamps: {
-    startedAt: string;
-    round0At: string | null;
-    round1At: string | null;
-    round2At: string | null;
-    round3At: string | null;
-  };
-  counts?: {
-    findings: number;
-    challenges: number;
-    rebuttals: number;
-  };
-  agents?: WorkflowAgentSnapshot[];
-  decision: {
-    decisionId: string;
-    riskTier: RiskTier;
-    compositeScore: number;
-  } | null;
-}
-
 export interface DecisionDetail {
   decision: {
     decisionId: string;
@@ -109,7 +43,6 @@ export interface DecisionDetail {
     errorLog: string;
     timestamp: string;
   } | null;
-  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
   findings: Array<{
     findingId: string;
     agentId: string;
@@ -118,12 +51,6 @@ export interface DecisionDetail {
     evidence: string[];
     confidence: number;
     proposedRemediation: string;
-    toolTrace?: Array<{
-      toolName: string;
-      args?: Record<string, unknown>;
-      result?: unknown;
-      timestamp?: number;
-    }>;
     timedOut?: boolean;
   }>;
   challenges: Array<{
@@ -170,43 +97,25 @@ export interface ApprovalSubmissionInput {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  let lastError: unknown;
+  const response = await fetch(`${orchestratorUrl}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    cache: 'no-store',
+  });
 
-  for (const baseUrl of orchestratorUrls) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        ...init,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(init?.headers ?? {}),
-        },
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status} via ${baseUrl}`);
-      }
-
-      return response.json() as Promise<T>;
-    } catch (error) {
-      lastError = error;
-    }
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Failed to reach orchestrator.');
+  return response.json() as Promise<T>;
 }
 
 export async function listDecisions(): Promise<DecisionListItem[]> {
   try {
     return await requestJson<DecisionListItem[]>('/api/decisions');
-  } catch {
-    return [];
-  }
-}
-
-export async function listWorkflows(): Promise<WorkflowListItem[]> {
-  try {
-    return await requestJson<WorkflowListItem[]>('/api/workflows');
   } catch {
     return [];
   }
@@ -261,13 +170,6 @@ export async function submitApproval(payload: ApprovalSubmissionInput) {
   return requestJson<{ status: string; decisionId: string }>('/api/approvals', {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
-}
-
-export async function cancelEvent(eventId: string) {
-  return requestJson<{ eventId: string; status: string }>(`/api/events/${eventId}/cancel`, {
-    method: 'POST',
-    body: JSON.stringify({}),
   });
 }
 

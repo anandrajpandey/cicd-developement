@@ -12,7 +12,6 @@ const DEFAULT_OLLAMA_MODEL = 'mistral:7b';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 3;
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
-const FALLBACK_STATUS_CODES = new Set([413, 429, 503]);
 
 class LlmClientError extends Error {
   constructor(
@@ -260,12 +259,7 @@ export function createChatClient(overrides: ChatClientDependencies = {}) {
       const normalizedError = toLlmClientError(error, 'groq');
       console.warn('Groq failed, falling back to Ollama. Groq error:', error);
 
-      const shouldFallback =
-        normalizedError.retryable ||
-        (typeof normalizedError.status === 'number' &&
-          FALLBACK_STATUS_CODES.has(normalizedError.status));
-
-      if (!shouldFallback) {
+      if (!normalizedError.retryable) {
         throw normalizedError;
       }
 

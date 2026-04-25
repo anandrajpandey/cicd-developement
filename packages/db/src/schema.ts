@@ -67,14 +67,6 @@ export const agentFindings = pgTable(
     evidence: jsonb('evidence').$type<string[]>().notNull(),
     confidence: doublePrecision('confidence').notNull(),
     proposedRemediation: text('proposed_remediation').notNull(),
-    toolTrace: jsonb('tool_trace').$type<
-      Array<{
-        toolName: string;
-        args?: Record<string, unknown>;
-        result?: unknown;
-        timestamp?: number;
-      }>
-    >(),
     timedOut: boolean('timed_out').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

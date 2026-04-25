@@ -31,13 +31,6 @@ export const pipelineEventSchema = z.object({
   timestamp: z.coerce.date(),
 });
 
-export const toolTraceSchema = z.object({
-  toolName: z.string().min(1),
-  args: z.record(z.string(), z.unknown()).default({}),
-  result: z.unknown().optional(),
-  timestamp: z.number().optional(),
-});
-
 export const agentFindingSchema = z.object({
   findingId: z.string().min(1),
   agentId: agentIdSchema,
@@ -46,7 +39,6 @@ export const agentFindingSchema = z.object({
   evidence: z.array(z.string()),
   confidence: z.number().min(0).max(1),
   proposedRemediation: z.string().min(1),
-  toolTrace: z.array(toolTraceSchema).optional(),
 });
 
 export const challengeSchema = z.object({
@@ -90,7 +82,6 @@ export type RiskTier = z.infer<typeof riskTierSchema>;
 export type ApprovalAction = z.infer<typeof approvalActionSchema>;
 export type RoundExecutionSource = z.infer<typeof roundExecutionSourceSchema>;
 export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
-export type ToolTrace = z.infer<typeof toolTraceSchema>;
 export type AgentFinding = z.infer<typeof agentFindingSchema>;
 export type Challenge = z.infer<typeof challengeSchema>;
 export type Rebuttal = z.infer<typeof rebuttalSchema>;
