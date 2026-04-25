@@ -18,8 +18,3 @@ Multi-agent CI/CD debate system MVP built as a pnpm monorepo.
 4. Run `corepack pnpm --filter @agentic-cicd/orchestrator dev`
 5. Run `corepack pnpm --filter @agentic-cicd/admin-panel dev`
 
-## Notes
-
-- The orchestrator loads `.env` by searching upward from the current workspace
-- The admin panel expects `NEXT_PUBLIC_ORCHESTRATOR_URL`
-- GitHub PR diff fetching requires a fine-grained PAT with `Pull requests: Read`
