@@ -23,6 +23,65 @@ export interface DecisionListItem {
   branch: string;
 }
 
+export type WorkflowStatus =
+  | 'STARTED'
+  | 'ANALYZING'
+  | 'CHALLENGING'
+  | 'REBUTTING'
+  | 'JUDGED'
+  | 'CANCELLED';
+
+export type WorkflowAgentId =
+  | 'build_analyzer'
+  | 'code_reviewer'
+  | 'test_analyzer'
+  | 'dependency_checker'
+  | 'judge';
+
+export interface WorkflowAgentSnapshot {
+  agentId: WorkflowAgentId;
+  confidence: number | null;
+  previousConfidence?: number | null;
+  status:
+    | 'idle'
+    | 'analyzing'
+    | 'finding_ready'
+    | 'challenging'
+    | 'defending'
+    | 'conceding'
+    | 'judging';
+  rebuttalPosition?: 'DEFEND' | 'CONCEDE' | null;
+}
+
+export interface WorkflowListItem {
+  eventId: string;
+  repository: string;
+  branch: string;
+  commitSha: string;
+  failureType: string;
+  status: WorkflowStatus;
+  createdAt: string;
+  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
+  timestamps: {
+    startedAt: string;
+    round0At: string | null;
+    round1At: string | null;
+    round2At: string | null;
+    round3At: string | null;
+  };
+  counts?: {
+    findings: number;
+    challenges: number;
+    rebuttals: number;
+  };
+  agents?: WorkflowAgentSnapshot[];
+  decision: {
+    decisionId: string;
+    riskTier: RiskTier;
+    compositeScore: number;
+  } | null;
+}
+
 export interface DecisionDetail {
   decision: {
     decisionId: string;
@@ -43,6 +102,7 @@ export interface DecisionDetail {
     errorLog: string;
     timestamp: string;
   } | null;
+  runtimeStatus?: 'RUNNING' | 'CANCELLED' | 'COMPLETED' | null;
   findings: Array<{
     findingId: string;
     agentId: string;
@@ -51,6 +111,12 @@ export interface DecisionDetail {
     evidence: string[];
     confidence: number;
     proposedRemediation: string;
+    toolTrace?: Array<{
+      toolName: string;
+      args?: Record<string, unknown>;
+      result?: unknown;
+      timestamp?: number;
+    }> | null;
     timedOut?: boolean;
   }>;
   challenges: Array<{
@@ -116,6 +182,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function listDecisions(): Promise<DecisionListItem[]> {
   try {
     return await requestJson<DecisionListItem[]>('/api/decisions');
+  } catch {
+    return [];
+  }
+}
+
+export async function listWorkflows(): Promise<WorkflowListItem[]> {
+  try {
+    return await requestJson<WorkflowListItem[]>('/api/workflows');
   } catch {
     return [];
   }

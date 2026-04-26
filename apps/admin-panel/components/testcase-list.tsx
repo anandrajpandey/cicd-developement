@@ -16,8 +16,9 @@ const SCENARIOS = [
 Warning: Missing trailing comma. (comma-dangle)
   at src/utils/format.ts:12:15
 Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)`,
-    color: 'border-green-500/20 bg-green-500/10 text-green-400',
-    hover: 'hover:bg-green-500/20',
+    outline: 'border-lime-400/70',
+    accent: 'text-lime-300',
+    button: 'border-lime-400/40 text-lime-100 hover:bg-lime-400/10',
   },
   {
     id: 'risk-medium',
@@ -40,8 +41,9 @@ Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)`
       23 |     const result = calculateInterest(100, 0.05, 1);
     > 24 |     expect(result).toBe(105.00);
          |                    ^`,
-    color: 'border-orange-500/20 bg-orange-500/10 text-orange-400',
-    hover: 'hover:bg-orange-500/20',
+    outline: 'border-yellow-300/70',
+    accent: 'text-yellow-200',
+    button: 'border-yellow-300/40 text-yellow-100 hover:bg-yellow-300/10',
   },
   {
     id: 'risk-high',
@@ -63,8 +65,9 @@ FAIL  src/tests/billing-cycle.test.ts
   ✖ integration test failed to start due to missing crypto engine
 
 Lint Error: legacy_invoices table is deprecated and missing.`,
-    color: 'border-red-500/20 bg-red-500/10 text-red-400',
-    hover: 'hover:bg-red-500/20',
+    outline: 'border-red-400/70',
+    accent: 'text-red-200',
+    button: 'border-red-400/40 text-red-100 hover:bg-red-400/10',
   },
 ];
 
@@ -100,25 +103,25 @@ export function TestcaseList() {
       {SCENARIOS.map((scenario) => (
         <div
           key={scenario.id}
-          className={`flex flex-col p-6 rounded-2xl border ${scenario.color.split(' ')[0]} bg-[#0F1218] transition-all relative overflow-hidden shadow-2xl`}
+          className={`relative flex flex-col overflow-hidden border bg-[#090909] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.35)] transition-all ${scenario.outline}`}
         >
-          <div className={`absolute top-0 left-0 w-full h-1 ${scenario.color.split(' ')[1]}`} />
+          <div className={`absolute left-0 top-0 h-full w-[2px] ${scenario.outline.replace('border-', 'bg-')}`} />
           <div className="flex justify-between items-start mb-4">
             <span
-              className={`text-xs font-black uppercase tracking-widest px-3 py-1 rounded-sm ${scenario.color}`}
+              className={`border border-white/12 bg-white/[0.03] px-3 py-1 text-xs font-black uppercase tracking-widest ${scenario.accent}`}
             >
               {scenario.tier} RISK
             </span>
           </div>
 
           <h2 className="text-xl font-bold tracking-wider text-white mb-2">{scenario.title}</h2>
-          <p className="text-mist/70 text-sm leading-relaxed mb-6 flex-1">{scenario.description}</p>
+          <p className="mb-6 flex-1 text-sm leading-relaxed text-white/65">{scenario.description}</p>
 
-          <div className="bg-black/40 rounded-lg p-4 mb-6 border border-white/5 relative group">
-            <span className="text-[9px] uppercase font-bold tracking-widest text-mist/40 absolute -top-2 left-3 bg-[#0F1218] px-1">
+          <div className="relative mb-6 border border-white/8 bg-black/50 p-4">
+            <span className="absolute -top-2 left-3 bg-[#090909] px-1 text-[9px] font-bold uppercase tracking-widest text-white/35">
               Simulated Payload
             </span>
-            <pre className="text-[10px] text-mist/60 font-mono whitespace-pre-wrap overflow-x-auto max-h-32 scrollbar-thin scrollbar-thumb-white/10">
+            <pre className="scrollbar-thin max-h-32 overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-white/45 scrollbar-thumb-white/10">
               {scenario.errorLog}
             </pre>
           </div>
@@ -126,8 +129,11 @@ export function TestcaseList() {
           <button
             onClick={() => triggerScenario(scenario)}
             disabled={!!isSubmitting}
-            className={`w-full py-3 rounded-lg text-sm font-bold uppercase tracking-widest transition-all
-              ${isSubmitting ? 'bg-white/5 text-white/30 cursor-not-allowed' : `${scenario.color.split(' ')[1]} ${scenario.hover} text-white/90 hover:shadow-lg shadow-black`}`}
+            className={`w-full border px-4 py-3 text-sm font-bold uppercase tracking-widest transition-all ${
+              isSubmitting
+                ? 'cursor-not-allowed border-white/10 bg-white/[0.03] text-white/30'
+                : `${scenario.button}`
+            }`}
           >
             {isSubmitting === scenario.id ? 'Inducing Risk...' : 'Trigger Debate'}
           </button>

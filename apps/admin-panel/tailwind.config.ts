@@ -21,7 +21,8 @@ const config: Config = {
         grid: 'linear-gradient(rgba(109,242,163,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(109,242,163,0.08) 1px, transparent 1px)',
       },
       fontFamily: {
-        sans: ['var(--font-orbitron)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-rajdhani)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
     },
   },

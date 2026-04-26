@@ -50,16 +50,21 @@ export const appRouter = t.router({
     const low = decisions.filter((item) => item.riskTier === 'LOW').length;
     const medium = decisions.filter((item) => item.riskTier === 'MEDIUM').length;
     const high = decisions.filter((item) => item.riskTier === 'HIGH').length;
-    const adkDominant = decisions.filter((item) =>
-      Object.values(item.executionMeta).every((source) => source === 'ADK'),
-    ).length;
-    const fallbackTouched = decisions.filter((item) =>
-      Object.values(item.executionMeta).some((source) => source === 'NATIVE'),
-    ).length;
+    const totalRounds = decisions.length * 4;
+    const adkDominant = decisions.reduce(
+      (sum, item) =>
+        sum + Object.values(item.executionMeta).filter((source) => source === 'ADK').length,
+      0,
+    );
+    const fallbackTouched = totalRounds - adkDominant;
     const avgCompositeScore =
       totalEvents === 0
         ? 0
         : decisions.reduce((sum, item) => sum + item.compositeScore, 0) / totalEvents;
+    const latestDecision = decisions[0] ?? null;
+    const latestAdkCoverage = latestDecision
+      ? Object.values(latestDecision.executionMeta).filter((source) => source === 'ADK').length / 4
+      : 0;
 
     return {
       totalEvents,
@@ -70,6 +75,7 @@ export const appRouter = t.router({
       high,
       adkDominant,
       fallbackTouched,
+      latestAdkCoverage,
     };
   }),
   decisionByEventId: t.procedure.input(z.string().uuid()).query(async ({ input }) => {

@@ -10,8 +10,12 @@ const roundLabels: Array<{ key: keyof ExecutionMeta; label: string }> = [
 
 function sourceClass(source: RoundExecutionSource) {
   return source === 'ADK'
-    ? 'border-mint/20 bg-mint/10 text-mint'
-    : 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+    ? 'border-white/16 bg-white text-black'
+    : 'border-white/12 bg-black text-white';
+}
+
+function labelClass(source: RoundExecutionSource) {
+  return source === 'ADK' ? 'text-black/65' : 'text-white/65';
 }
 
 export function getAdkCoverage(meta: ExecutionMeta) {
@@ -42,7 +46,7 @@ export function ExecutionPathStrip({
             sourceClass(meta[key]),
           )}
         >
-          <span className="text-white/65">{label}</span>
+          <span className={labelClass(meta[key])}>{label}</span>
           <span>{meta[key]}</span>
         </span>
       ))}

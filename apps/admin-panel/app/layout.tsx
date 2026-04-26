@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Orbitron } from 'next/font/google';
+import { Rajdhani } from 'next/font/google';
 
-const orbitron = Orbitron({
+const rajdhani = Rajdhani({
   subsets: ['latin'],
-  variable: '--font-orbitron',
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-rajdhani',
 });
 
 import './globals.css';
@@ -19,8 +20,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={orbitron.variable}>
-      <body className="font-sans bg-[#08080A] text-white overflow-hidden">
+    <html lang="en" className={rajdhani.variable}>
+      <body className="font-sans tracking-wide bg-[#08080A] text-white overflow-hidden">
         <AppFrame>{children}</AppFrame>
       </body>
     </html>
