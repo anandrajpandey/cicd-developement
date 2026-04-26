@@ -6,16 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import type { PropsWithChildren } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
-import {
-  Activity,
-  Binary,
-  LogOut,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Waves,
-  Zap,
-} from 'lucide-react';
+import { Activity, Binary, LogOut, Search, ShieldCheck, Sparkles, Waves, Zap } from 'lucide-react';
 
 import { cn } from '../lib/utils';
 import { SignOutButton } from './sign-out-button';

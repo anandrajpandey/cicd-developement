@@ -105,7 +105,9 @@ export function TestcaseList() {
           key={scenario.id}
           className={`relative flex flex-col overflow-hidden border bg-[#090909] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.35)] transition-all ${scenario.outline}`}
         >
-          <div className={`absolute left-0 top-0 h-full w-[2px] ${scenario.outline.replace('border-', 'bg-')}`} />
+          <div
+            className={`absolute left-0 top-0 h-full w-[2px] ${scenario.outline.replace('border-', 'bg-')}`}
+          />
           <div className="flex justify-between items-start mb-4">
             <span
               className={`border border-white/12 bg-white/[0.03] px-3 py-1 text-xs font-black uppercase tracking-widest ${scenario.accent}`}
@@ -115,7 +117,9 @@ export function TestcaseList() {
           </div>
 
           <h2 className="text-xl font-bold tracking-wider text-white mb-2">{scenario.title}</h2>
-          <p className="mb-6 flex-1 text-sm leading-relaxed text-white/65">{scenario.description}</p>
+          <p className="mb-6 flex-1 text-sm leading-relaxed text-white/65">
+            {scenario.description}
+          </p>
 
           <div className="relative mb-6 border border-white/8 bg-black/50 p-4">
             <span className="absolute -top-2 left-3 bg-[#090909] px-1 text-[9px] font-bold uppercase tracking-widest text-white/35">

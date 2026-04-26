@@ -61,7 +61,8 @@ export default async function DashboardPage({
   const avgCompositeScore =
     filteredDecisions.length === 0
       ? 0
-      : filteredDecisions.reduce((sum, item) => sum + item.compositeScore, 0) / filteredDecisions.length;
+      : filteredDecisions.reduce((sum, item) => sum + item.compositeScore, 0) /
+        filteredDecisions.length;
   const adkBackedRounds = filteredDecisions.reduce(
     (sum, item) =>
       sum + Object.values(item.executionMeta).filter((source) => source === 'ADK').length,
@@ -157,7 +158,7 @@ export default async function DashboardPage({
       </section>
 
       <section className="dashboard-analytics-grid">
-          <div className="dashboard-embedded-surface">
+        <div className="dashboard-embedded-surface">
           <div className="flex items-start justify-between gap-5">
             <div>
               <p className="dashboard-mini-label">Composite health</p>

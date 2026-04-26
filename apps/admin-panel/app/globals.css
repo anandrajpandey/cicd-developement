@@ -136,11 +136,7 @@ select {
   gap: 2px;
   min-width: 0;
   max-width: 100%;
-  font-family:
-    'Orbitron',
-    'Bahnschrift',
-    'Rajdhani',
-    sans-serif;
+  font-family: 'Orbitron', 'Bahnschrift', 'Rajdhani', sans-serif;
   font-size: 25px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -395,8 +391,7 @@ select {
   overflow: hidden;
   border-radius: 0;
   background:
-    linear-gradient(180deg, rgba(18, 18, 18, 0.88), rgba(8, 8, 8, 0.96)),
-    rgba(6, 6, 6, 0.94);
+    linear-gradient(180deg, rgba(18, 18, 18, 0.88), rgba(8, 8, 8, 0.96)), rgba(6, 6, 6, 0.94);
 }
 
 .dashboard-wave-fill {
