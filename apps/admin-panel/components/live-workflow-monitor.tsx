@@ -7,11 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { io } from 'socket.io-client';
 
-import type {
-  WorkflowAgentSnapshot,
-  WorkflowListItem,
-  WorkflowStatus,
-} from '../lib/orchestrator';
+import type { WorkflowAgentSnapshot, WorkflowListItem, WorkflowStatus } from '../lib/orchestrator';
 
 interface Props {
   initialWorkflows: WorkflowListItem[];
@@ -96,19 +92,35 @@ function formatRoundTimestamp(
     return 'Cancelled';
   }
 
-  if (round === 'round1At' && workflow.timestamps.round3At && (workflow.counts?.challenges ?? 0) === 0) {
+  if (
+    round === 'round1At' &&
+    workflow.timestamps.round3At &&
+    (workflow.counts?.challenges ?? 0) === 0
+  ) {
     return 'No challenge needed';
   }
 
-  if (round === 'round2At' && workflow.timestamps.round3At && (workflow.counts?.rebuttals ?? 0) === 0) {
+  if (
+    round === 'round2At' &&
+    workflow.timestamps.round3At &&
+    (workflow.counts?.rebuttals ?? 0) === 0
+  ) {
     return 'No rebuttal needed';
   }
 
-  if (round === 'round1At' && workflow.timestamps.round2At && (workflow.counts?.challenges ?? 0) === 0) {
+  if (
+    round === 'round1At' &&
+    workflow.timestamps.round2At &&
+    (workflow.counts?.challenges ?? 0) === 0
+  ) {
     return 'No challenge needed';
   }
 
-  if (round === 'round2At' && workflow.timestamps.round3At && (workflow.counts?.challenges ?? 0) === 0) {
+  if (
+    round === 'round2At' &&
+    workflow.timestamps.round3At &&
+    (workflow.counts?.challenges ?? 0) === 0
+  ) {
     return 'No rebuttal needed';
   }
 
@@ -263,10 +275,7 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
             ...existing.timestamps,
             ...workflow.timestamps,
           },
-          agents:
-            workflow.agents && workflow.agents.length > 0
-              ? workflow.agents
-              : existing.agents,
+          agents: workflow.agents && workflow.agents.length > 0 ? workflow.agents : existing.agents,
         });
       }
 
@@ -476,7 +485,9 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
     <section className="panel animated-panel -mx-12 overflow-hidden p-0">
       <div className="border-b border-white/12">
         <div className="px-12 pt-4 pb-4">
-          <h2 className="text-3xl font-bold uppercase tracking-widest text-white">Workflow Timeline</h2>
+          <h2 className="text-3xl font-bold uppercase tracking-widest text-white">
+            Workflow Timeline
+          </h2>
           <p className="mt-2 text-sm text-white/58">Every event, live or complete</p>
         </div>
       </div>
@@ -517,7 +528,8 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
                         </span>
                         {workflow.decision ? (
                           <span className="border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-mist/80">
-                            {workflow.decision.riskTier} {Math.round(workflow.decision.compositeScore * 100)}
+                            {workflow.decision.riskTier}{' '}
+                            {Math.round(workflow.decision.compositeScore * 100)}
                           </span>
                         ) : null}
                       </div>
@@ -580,7 +592,9 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
                               />
                             </div>
                             <div className="mt-2 text-[10px] uppercase tracking-[0.16em] text-mist/45">
-                              {agent?.rebuttalPosition ?? agent?.status?.replace('_', ' ') ?? 'idle'}
+                              {agent?.rebuttalPosition ??
+                                agent?.status?.replace('_', ' ') ??
+                                'idle'}
                             </div>
                           </div>
                         );
@@ -591,23 +605,33 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
                   <div className="mt-4 grid gap-3 text-xs text-mist/68 xl:grid-cols-5">
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Started</div>
-                      <div className="mt-1 font-mono">{formatTimestamp(workflow.timestamps.startedAt)}</div>
+                      <div className="mt-1 font-mono">
+                        {formatTimestamp(workflow.timestamps.startedAt)}
+                      </div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 0</div>
-                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round0At')}</div>
+                      <div className="mt-1 font-mono">
+                        {formatRoundTimestamp(workflow, 'round0At')}
+                      </div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 1</div>
-                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round1At')}</div>
+                      <div className="mt-1 font-mono">
+                        {formatRoundTimestamp(workflow, 'round1At')}
+                      </div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Round 2</div>
-                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round2At')}</div>
+                      <div className="mt-1 font-mono">
+                        {formatRoundTimestamp(workflow, 'round2At')}
+                      </div>
                     </div>
                     <div>
                       <div className="uppercase tracking-[0.16em] text-mist/45">Judge</div>
-                      <div className="mt-1 font-mono">{formatRoundTimestamp(workflow, 'round3At')}</div>
+                      <div className="mt-1 font-mono">
+                        {formatRoundTimestamp(workflow, 'round3At')}
+                      </div>
                     </div>
                   </div>
                 </motion.div>
