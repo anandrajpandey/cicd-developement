@@ -25,7 +25,7 @@ export default async function TestCasesPage() {
         <div className="min-h-0">
           <TestcaseList />
         </div>
-        <div className="min-h-0">
+        <div className="min-h-0 -mx-12 border-t border-white/12 px-12 pt-4">
           <LiveWorkflowMonitor initialWorkflows={workflows} />
         </div>
       </main>

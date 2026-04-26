@@ -70,6 +70,7 @@ export default async function DashboardPage({
   );
   const nativeFallbackRounds = filteredDecisions.length * 4 - adkBackedRounds;
   const latestDecision = filteredDecisions[0] ?? null;
+  const latestCompositeScore = latestDecision?.compositeScore ?? 0;
   const latestCoverage = latestDecision
     ? scoreToPercent(
         Object.values(latestDecision.executionMeta).filter((source) => source === 'ADK').length / 4,
@@ -178,7 +179,7 @@ export default async function DashboardPage({
         </div>
 
         <div className="dashboard-embedded-surface dashboard-score-surface">
-          <p className="dashboard-mini-label">Average composite score</p>
+          <p className="dashboard-mini-label">Latest composite score</p>
           {latestDecision ? (
             <>
               <div className="mt-4 flex items-center justify-between gap-3">
@@ -195,7 +196,7 @@ export default async function DashboardPage({
                 <div className="dashboard-ring">
                   <div className="dashboard-ring-core">
                     <span className="text-5xl font-semibold text-white">
-                      {scoreToPercent(latestDecision.compositeScore)}
+                      {scoreToPercent(latestCompositeScore)}
                     </span>
                     <span className="mt-1 text-xs uppercase tracking-[0.24em] text-white/45">
                       score

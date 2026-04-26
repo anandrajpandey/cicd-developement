@@ -1,6 +1,15 @@
 'use client';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  AlertTriangle,
+  FlaskConical,
+  Package,
+  Scale,
+  Search,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import { type AgentId, type AgentStatus } from './debate.types';
 
 export type AgentNodeData = {
@@ -41,13 +50,13 @@ const STATUS_TEXT: Record<AgentStatus, string> = {
   judging: 'text-fuchsia-400',
 };
 
-const ICONS: Record<AgentId, string> = {
-  build_analyzer: '🔧',
-  code_reviewer: '🔎',
-  test_analyzer: '🧪',
-  dependency_checker: '📦',
-  judge: '⚖️',
-  root_event: '⚠️',
+const ICONS: Record<AgentId, LucideIcon> = {
+  build_analyzer: Wrench,
+  code_reviewer: Search,
+  test_analyzer: FlaskConical,
+  dependency_checker: Package,
+  judge: Scale,
+  root_event: AlertTriangle,
 };
 
 export function AgentNode({ data }: NodeProps) {
@@ -72,9 +81,9 @@ export function AgentNode({ data }: NodeProps) {
 
       <div className="flex items-center gap-3">
         <div
-          className={`flex items-center justify-center w-8 h-8 rounded-md bg-white/5 border border-white/5 text-sm ${pulse ? 'animate-pulse' : ''} shadow-inner`}
+          className={`flex items-center justify-center w-8 h-8 rounded-md bg-white/5 border border-white/5 ${pulse ? 'animate-pulse' : ''} shadow-inner`}
         >
-          {Icon}
+          <Icon className="h-4 w-4 text-white/80" strokeWidth={2} />
         </div>
         <div className="flex flex-col flex-1">
           <span className="text-[11px] uppercase tracking-widest text-mist/40 font-semibold">

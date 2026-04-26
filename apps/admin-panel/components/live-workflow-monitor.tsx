@@ -473,14 +473,12 @@ export function LiveWorkflowMonitor({ initialWorkflows }: Props) {
   );
 
   return (
-    <section className="panel animated-panel overflow-hidden p-0">
-      <div className="border-b border-line bg-[linear-gradient(90deg,rgba(8,25,38,0.95),rgba(4,14,26,0.95))] px-6 py-5">
-        <p className="eyebrow">Workflow Timeline</p>
-        <h2 className="mt-2 text-2xl font-semibold text-white">Every event, live or complete</h2>
-        <p className="mt-2 text-sm text-mist/68">
-          Active workflows stream live. Completed workflows stay pinned with their final debate
-          timestamps and decision links.
-        </p>
+    <section className="panel animated-panel -mx-12 overflow-hidden p-0">
+      <div className="border-b border-white/12">
+        <div className="px-12 pt-4 pb-4">
+          <h2 className="text-3xl font-bold uppercase tracking-widest text-white">Workflow Timeline</h2>
+          <p className="mt-2 text-sm text-white/58">Every event, live or complete</p>
+        </div>
       </div>
 
       <div className="divide-y divide-line">
