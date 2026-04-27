@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { db, pipelineEvents } from '@agentic-cicd/db';
-import { runDebate } from '../debate/run-debate.js';
 import { loadEnv } from '../env.js';
 
 loadEnv();
 process.env.ADK_BASE_URL = 'http://127.0.0.1:59999';
+
+let db: any;
+let pipelineEvents: any;
+let runDebate: any;
 
 const forceDeterministicFallback = process.argv.includes('--deterministic');
 if (forceDeterministicFallback) {
@@ -49,6 +51,17 @@ async function runSimulation(
   const eventId = randomUUID();
   const mode = forceDeterministicFallback ? 'DETERMINISTIC' : 'AI';
 
+  if (!db) {
+    const dbModule = await import('@agentic-cicd/db');
+    db = dbModule.db;
+    pipelineEvents = dbModule.pipelineEvents;
+  }
+
+  if (!runDebate) {
+    const rn = await import('../debate/run-debate.js');
+    runDebate = rn.runDebate ?? rn;
+  }
+
   console.log(`\n[${'='.repeat(70)}]`);
   console.log(`[${tier.toUpperCase()} RISK - ${mode} MODE]`);
   console.log(`Repository: ${repository}`);
@@ -67,7 +80,12 @@ async function runSimulation(
       timestamp: new Date(),
     };
 
-    await db.insert(pipelineEvents).values(event);
+    try {
+      await db.insert(pipelineEvents).values(event);
+    } catch (err) {
+      console.warn('DB insert failed; continuing without persistence:', err instanceof Error ? err.message : String(err));
+    }
+
     await runDebate(event);
 
     const duration = Date.now() - startTime;

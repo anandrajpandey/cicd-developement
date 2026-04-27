@@ -206,18 +206,22 @@ function extractJsonObject(input: string): string {
 }
 
 async function persistFindings(findings: AgentFinding[], eventId: string): Promise<void> {
-  await db.insert(agentFindings).values(
-    findings.map((finding) => ({
-      findingId: finding.findingId,
-      agentId: finding.agentId,
-      eventId,
-      hypothesis: finding.hypothesis,
-      evidence: finding.evidence,
-      confidence: finding.confidence,
-      proposedRemediation: finding.proposedRemediation,
-      timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
-    })),
-  );
+  try {
+    await db.insert(agentFindings).values(
+      findings.map((finding) => ({
+        findingId: finding.findingId,
+        agentId: finding.agentId,
+        eventId,
+        hypothesis: finding.hypothesis,
+        evidence: finding.evidence,
+        confidence: finding.confidence,
+        proposedRemediation: finding.proposedRemediation,
+        timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
+      })),
+    );
+  } catch (err) {
+    logger.warn('persistFindings failed; continuing without persistence', { error: err });
+  }
 }
 
 async function emitRoundZeroFindings(eventId: string, findings: AgentFinding[]): Promise<void> {
@@ -234,18 +238,21 @@ async function persistChallenges(foundChallenges: Challenge[], eventId: string):
   if (foundChallenges.length === 0) {
     return;
   }
-
-  await db.insert(challenges).values(
-    foundChallenges.map((challenge) => ({
-      challengeId: challenge.challengeId,
-      eventId,
-      challengerAgentId: challenge.challengerAgentId,
-      targetAgentId: challenge.targetAgentId,
-      counterHypothesis: challenge.counterHypothesis,
-      evidence: challenge.evidence,
-      confidence: challenge.confidence,
-    })),
-  );
+  try {
+    await db.insert(challenges).values(
+      foundChallenges.map((challenge) => ({
+        challengeId: challenge.challengeId,
+        eventId,
+        challengerAgentId: challenge.challengerAgentId,
+        targetAgentId: challenge.targetAgentId,
+        counterHypothesis: challenge.counterHypothesis,
+        evidence: challenge.evidence,
+        confidence: challenge.confidence,
+      })),
+    );
+  } catch (err) {
+    logger.warn('persistChallenges failed; continuing without persistence', { error: err });
+  }
 }
 
 async function emitRoundOneChallenges(
@@ -264,18 +271,21 @@ async function persistRebuttals(foundRebuttals: Rebuttal[], eventId: string): Pr
   if (foundRebuttals.length === 0) {
     return;
   }
-
-  await db.insert(rebuttals).values(
-    foundRebuttals.map((rebuttal) => ({
-      rebuttalId: rebuttal.rebuttalId,
-      eventId,
-      challengeId: rebuttal.challengeId,
-      respondingAgentId: rebuttal.respondingAgentId,
-      position: rebuttal.position,
-      updatedConfidence: rebuttal.updatedConfidence,
-      rebuttalFactor: rebuttal.rebuttalFactor,
-    })),
-  );
+  try {
+    await db.insert(rebuttals).values(
+      foundRebuttals.map((rebuttal) => ({
+        rebuttalId: rebuttal.rebuttalId,
+        eventId,
+        challengeId: rebuttal.challengeId,
+        respondingAgentId: rebuttal.respondingAgentId,
+        position: rebuttal.position,
+        updatedConfidence: rebuttal.updatedConfidence,
+        rebuttalFactor: rebuttal.rebuttalFactor,
+      })),
+    );
+  } catch (err) {
+    logger.warn('persistRebuttals failed; continuing without persistence', { error: err });
+  }
 }
 
 async function emitRoundTwoRebuttals(eventId: string, foundRebuttals: Rebuttal[]): Promise<void> {
@@ -288,20 +298,24 @@ async function emitRoundTwoRebuttals(eventId: string, foundRebuttals: Rebuttal[]
 }
 
 async function persistDecision(decision: Decision): Promise<void> {
-  await db.insert(decisions).values({
-    decisionId: decision.decisionId,
-    eventId: decision.eventId,
-    compositeScore: decision.compositeScore,
-    riskTier: decision.riskTier,
-    reasoning: decision.reasoning,
-    recommendedAction: decision.recommendedAction,
-    executionMeta: decision.executionMeta ?? {
-      round0: 'NATIVE',
-      round1: 'NATIVE',
-      round2: 'NATIVE',
-      round3: 'NATIVE',
-    },
-  });
+  try {
+    await db.insert(decisions).values({
+      decisionId: decision.decisionId,
+      eventId: decision.eventId,
+      compositeScore: decision.compositeScore,
+      riskTier: decision.riskTier,
+      reasoning: decision.reasoning,
+      recommendedAction: decision.recommendedAction,
+      executionMeta: decision.executionMeta ?? {
+        round0: 'NATIVE',
+        round1: 'NATIVE',
+        round2: 'NATIVE',
+        round3: 'NATIVE',
+      },
+    });
+  } catch (err) {
+    logger.warn('persistDecision failed; continuing without persistence', { error: err });
+  }
 }
 
 function validateChallenge(challenge: Challenge | null): Challenge | null {
@@ -997,15 +1011,19 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
       logger.error('Failed to write and push automated fix.', { error: e });
     }
 
-    await db.insert(approvals).values({
-      approvalId: randomUUID(),
-      decisionId: judgeSynthesis.data.decisionId,
-      approver: 'Auto-Mitigator',
-      action: 'APPROVE',
-      justification: 'Automated mitigation for LOW risk pipeline failure.',
-      timestamp: new Date(),
-      mitigationDiff: diffContent,
-    });
+    try {
+      await db.insert(approvals).values({
+        approvalId: randomUUID(),
+        decisionId: judgeSynthesis.data.decisionId,
+        approver: 'Auto-Mitigator',
+        action: 'APPROVE',
+        justification: 'Automated mitigation for LOW risk pipeline failure.',
+        timestamp: new Date(),
+        mitigationDiff: diffContent,
+      });
+    } catch (err) {
+      logger.warn('persist approval failed; continuing without persistence', { error: err });
+    }
 
     logger.info('Low risk decision automatically mitigated.', {
       eventId: event.eventId,

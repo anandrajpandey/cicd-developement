@@ -266,6 +266,18 @@ export function createChatClient(overrides: ChatClientDependencies = {}): ChatCl
     const ollamaModel = options.ollamaModel ?? DEFAULT_OLLAMA_MODEL;
     const ollamaBaseUrl = options.ollamaBaseUrl;
 
+    const forceOllama = process.env.SIMULATION_FORCE_OLLAMA === 'true';
+    const groqProvided = !forceOllama && typeof groqApiKey === 'string' && groqApiKey.trim().length > 0;
+    const maskedGroq = groqProvided
+      ? groqApiKey!.length > 8
+        ? `${groqApiKey!.slice(0, 4)}...${groqApiKey!.slice(-4)}`
+        : '***short***'
+      : 'none';
+
+    console.info(
+      `[llm-client] chat() called model=${model} groqProvided=${groqProvided} groqMask=${maskedGroq} ollamaModel=${ollamaModel} forceOllama=${forceOllama}`,
+    );
+
     if (!groqApiKey) {
       return requestOllama(messages, ollamaModel, deps, ollamaBaseUrl);
     }
@@ -292,4 +304,20 @@ export function createChatClient(overrides: ChatClientDependencies = {}): ChatCl
   };
 }
 
-export const chat: ChatClient = createChatClient();
+// Allow a deterministic mock mode for local simulations and CI where external LLMs
+// should not be contacted. Set `SIMULATION_MOCK_LLM=true` in the env to enable.
+const SIMULATION_MOCK = process.env.SIMULATION_MOCK_LLM === 'true';
+
+if (SIMULATION_MOCK) {
+  console.info('[llm-client] SIMULATION_MOCK_LLM is active — returning deterministic responses');
+}
+
+export const chat: ChatClient = SIMULATION_MOCK
+  ? async (messages: ChatMessage[], model = DEFAULT_GROQ_MODEL) => {
+      const promptSummary = messages
+        .slice(-1)
+        .map((m) => `${m.role}:${(m.content || '').slice(0, 120)}`)
+        .join(' | ');
+      return `SIMULATION_RESPONSE model=${model} prompt=${promptSummary}`;
+    }
+  : createChatClient();

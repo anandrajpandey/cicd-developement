@@ -116,7 +116,9 @@ function parseBridgeModel(model: string): { provider: 'groq' | 'ollama'; agentId
 function resolveGroqApiKey(agentId: keyof typeof specialistAgentModels): string | undefined {
   const config = specialistAgentModels[agentId];
   const apiKey = process.env[config.apiKeyEnv]?.trim();
-  return apiKey && apiKey.length > 0 ? apiKey : undefined;
+  const present = typeof apiKey === 'string' && apiKey.length > 0;
+  console.info(`[adk] resolveGroqApiKey agent=${agentId} envVar=${config.apiKeyEnv} present=${present}`);
+  return present ? apiKey : undefined;
 }
 
 function resolveAgentModel(agentId: keyof typeof specialistAgentModels): string {
@@ -175,6 +177,10 @@ class GroqBridgeLlm extends BaseLlm {
         },
       ];
     });
+
+    console.info(
+      `[adk] GroqBridgeLlm request provider=${parsedModel.provider} agentId=${parsedModel.agentId} model=${parsedModel.modelName}`,
+    );
 
     const response = await chat([...systemMessages, ...messages], parsedModel.modelName, {
       groqApiKey:

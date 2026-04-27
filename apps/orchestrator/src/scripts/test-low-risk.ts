@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { db, pipelineEvents } from '@agentic-cicd/db';
-import { runDebate } from '../debate/run-debate.js';
 import { loadEnv } from '../env.js';
 
 loadEnv();
@@ -16,6 +14,8 @@ function sanitizeLog(log: string): string {
 }
 
 async function main() {
+  const { db, pipelineEvents } = await import('@agentic-cicd/db');
+  const { runDebate } = await import('../debate/run-debate.js');
   const timestamp = new Date().toISOString();
   const event = {
     eventId: randomUUID(),
@@ -35,7 +35,11 @@ Build completed with 3 lint warnings. Consider fixing before merge.`),
     timestamp: new Date(),
   };
 
-  await db.insert(pipelineEvents).values(event);
+  try {
+    await db.insert(pipelineEvents).values(event);
+  } catch (err) {
+    console.warn('DB insert failed; continuing without persistence:', err instanceof Error ? err.message : String(err));
+  }
   const mode = forceDeterministicFallback ? 'DETERMINISTIC' : 'AI';
   console.log(`\n[${timestamp}] EASY Risk Simulation (Mode: ${mode})`);
   console.log(`Repository: ${event.repository}`);
