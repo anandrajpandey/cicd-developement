@@ -1,142 +1,291 @@
-import { AgentFinding, Challenge, Rebuttal, Decision } from './debate.types';
+'use client';
 
-type ChatEvent = 
-  | { type: 'finding', data: AgentFinding }
-  | { type: 'challenge', data: Challenge }
-  | { type: 'rebuttal', data: Rebuttal }
-  | { type: 'decision', data: Decision };
+import { useEffect, useMemo, useState } from 'react';
 
-export function DebateChatFeed({ 
-  findings, 
-  challenges, 
-  rebuttals, 
-  decision 
+import { AnimatePresence, motion } from 'framer-motion';
+
+import type { AgentFinding, Challenge, Decision, Rebuttal } from './debate.types';
+
+type ChatEvent =
+  | { type: 'finding'; data: AgentFinding }
+  | { type: 'challenge'; data: Challenge }
+  | { type: 'rebuttal'; data: Rebuttal }
+  | { type: 'decision'; data: Decision };
+
+type BubbleContent = {
+  align: 'left' | 'right';
+  label: string;
+  title: string;
+  body: string;
+  meta: string;
+  accent: string;
+  labelClass: string;
+  bodyClass: string;
+  avatarLabel: string;
+  panelClass: string;
+  evidence: string[];
+  note: string;
+  noteValue: string;
+};
+
+export function DebateChatFeed({
+  findings,
+  challenges,
+  rebuttals,
+  decision,
 }: {
   findings: AgentFinding[];
   challenges: Challenge[];
   rebuttals: Partial<Record<string, Rebuttal>>;
   decision: Decision | null;
 }) {
-  const events: ChatEvent[] = [
-    ...findings.map(f => ({ type: 'finding' as const, data: f })),
-    ...challenges.map(c => ({ type: 'challenge' as const, data: c })),
-    ...Object.values(rebuttals).filter(Boolean).map(r => ({ type: 'rebuttal' as const, data: r! })),
-    ...(decision ? [{ type: 'decision' as const, data: decision }] : [])
-  ];
+  const events = useMemo<ChatEvent[]>(
+    () => [
+      ...findings.map((finding) => ({ type: 'finding' as const, data: finding })),
+      ...challenges.map((challenge) => ({ type: 'challenge' as const, data: challenge })),
+      ...Object.values(rebuttals)
+        .filter(Boolean)
+        .map((rebuttal) => ({ type: 'rebuttal' as const, data: rebuttal! })),
+      ...(decision ? [{ type: 'decision' as const, data: decision }] : []),
+    ],
+    [challenges, decision, findings, rebuttals],
+  );
 
   return (
-    <div className="flex flex-col gap-4">
-      {events.map((ev, i) => (
-        <ChatMessage key={`${ev.type}-${i}`} event={ev} />
-      ))}
+    <div className="space-y-3">
+      <AnimatePresence initial={false} mode="popLayout">
+        {events.map((event, index) => (
+          <ChatBubble key={`${event.type}-${index}`} event={event} index={index} />
+        ))}
+      </AnimatePresence>
       {events.length === 0 && (
-        <p className="text-mist/50 text-xs italic text-center py-4">Waiting for agent comms...</p>
+        <div className="rounded-[28px] border border-white/5 bg-white/5 px-4 py-5 text-center text-xs text-mist/55">
+          Waiting for agent comms...
+        </div>
       )}
     </div>
   );
 }
 
-function ChatMessage({ event }: { event: ChatEvent }) {
-  if (event.type === 'finding') {
-    const f = event.data;
-    return (
-      <div className="flex flex-col gap-2 bg-white/5 p-4 rounded-xl border border-white/5 shadow-sm relative hover:bg-white/10 transition-colors">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[11px] uppercase font-bold tracking-widest text-[#3B82F6]">{f.agentId.replace('_', ' ')}</span>
-          <span className="text-[10px] text-white/50 bg-black/30 px-2 py-1 rounded font-mono">{Math.round(f.confidence * 100)}% Conf</span>
-        </div>
-        <p className="text-sm text-white/90 leading-relaxed font-medium">
-          {f.hypothesis}
-        </p>
-        {f.evidence && f.evidence.length > 0 && (
-          <ul className="mt-2 space-y-1.5 pl-3 border-l-2 border-[#3B82F6]/30 py-1">
-            {f.evidence.map((e, i) => (
-              <li key={i} className="text-xs text-mist/80 block break-words leading-relaxed">{e}</li>
-            ))}
-          </ul>
-        )}
-        {f.proposedRemediation && (
-          <div className="mt-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
-            <p className="text-[10px] uppercase font-bold tracking-widest text-[#10B981] mb-1">Proposed Fix</p>
-            <p className="text-xs text-mist/90 font-mono whitespace-pre-wrap leading-relaxed">{f.proposedRemediation}</p>
+function ChatBubble({ event, index }: { event: ChatEvent; index: number }) {
+  const content = useMemo(() => buildBubbleContent(event), [event]);
+  const displayedText = useTypewriter(content.body);
+
+  return (
+    <motion.article
+      layout
+      initial={{ opacity: 0, y: 14, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.24, delay: Math.min(index * 0.02, 0.12) }}
+      className={`flex gap-3 ${content.align === 'right' ? 'justify-end' : 'justify-start'}`}
+    >
+      {content.align !== 'right' && <Avatar accent={content.accent} label={content.avatarLabel} />}
+      <div className={`max-w-[90%] sm:max-w-[84%] ${content.align === 'right' ? 'items-end' : ''}`}>
+        <div
+          className={`rounded-[28px] border px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.2)] ${content.panelClass}`}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className={`text-[10px] uppercase tracking-[0.26em] ${content.labelClass}`}>
+                {content.label}
+              </p>
+              <p className="mt-1 text-sm font-medium text-white/92">{content.title}</p>
+            </div>
+            <p className="shrink-0 text-[10px] uppercase tracking-[0.2em] text-mist/45">
+              {content.meta}
+            </p>
           </div>
-        )}
+
+          <div className="mt-3 space-y-3">
+            <TypewriterLine text={displayedText} toneClass={content.bodyClass} />
+            {content.evidence.length > 0 && (
+              <div className="space-y-2 border-l border-white/10 pl-3">
+                {content.evidence.map((item) => (
+                  <p key={item} className="text-xs leading-6 text-mist/70">
+                    {item}
+                  </p>
+                ))}
+              </div>
+            )}
+            {content.note ? (
+              <div className="rounded-2xl border border-white/5 bg-black/20 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-mist/50">{content.note}</p>
+                <p className="mt-1 font-mono text-xs leading-6 text-white/90 whitespace-pre-wrap">
+                  {content.noteValue}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
-    );
+      {content.align === 'right' && <Avatar accent={content.accent} label={content.avatarLabel} />}
+    </motion.article>
+  );
+}
+
+function Avatar({ accent, label }: { accent: string; label: string }) {
+  return (
+    <div
+      className={`mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-[10px] font-semibold uppercase tracking-[0.24em] ${accent}`}
+    >
+      {label}
+    </div>
+  );
+}
+
+function TypewriterLine({ text, toneClass }: { text: string; toneClass: string }) {
+  const [displayed, setDisplayed] = useState('');
+
+  useEffect(() => {
+    setDisplayed('');
+
+    if (!text) {
+      return;
+    }
+
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index += 2;
+      setDisplayed(text.slice(0, index));
+
+      if (index >= text.length) {
+        window.clearInterval(timer);
+      }
+    }, 14);
+
+    return () => window.clearInterval(timer);
+  }, [text]);
+
+  return (
+    <p className={`min-h-[1.5rem] text-sm leading-7 ${toneClass}`}>
+      {displayed}
+      <Caret isVisible={displayed.length < text.length} />
+    </p>
+  );
+}
+
+function Caret({ isVisible }: { isVisible: boolean }) {
+  return (
+    <AnimatePresence>
+      {isVisible ? (
+        <motion.span
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="ml-1 inline-block h-4 w-2 translate-y-[2px] rounded-sm bg-mint/70 align-middle"
+        />
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function buildBubbleContent(event: ChatEvent): BubbleContent {
+  if (event.type === 'finding') {
+    const finding = event.data;
+    return {
+      align: 'left' as const,
+      label: 'Round 0 analysis',
+      title: finding.agentId.replace(/_/g, ' '),
+      body: finding.hypothesis,
+      meta: `${Math.round(finding.confidence * 100)}% confidence`,
+      accent: 'border-[#3B82F6]/20 bg-[#07111f] text-[#93c5fd]',
+      labelClass: 'text-[#60a5fa]',
+      bodyClass: 'text-white/90',
+      avatarLabel: finding.agentId.slice(0, 3),
+      panelClass: 'border-[#3B82F6]/15 bg-[rgba(10,18,34,0.84)]',
+      evidence: finding.evidence.slice(0, 4),
+      note: finding.proposedRemediation ? 'Proposed remediation' : '',
+      noteValue: finding.proposedRemediation,
+    };
   }
 
   if (event.type === 'challenge') {
-    const c = event.data;
-    return (
-      <div className="flex flex-col gap-2 bg-orange-500/10 p-4 rounded-xl border border-orange-500/20 shadow-sm ml-8 relative hover:bg-orange-500/20 transition-colors">
-        <div className="absolute -left-4 top-6 w-4 h-[1px] bg-orange-500/30" />
-        <div className="absolute -left-[17px] top-[22px] w-2 h-2 rounded-full bg-orange-500/50" />
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[11px] uppercase font-bold tracking-widest text-orange-400 flex items-center gap-2">
-            {c.challengerAgentId.replace('_', ' ')}
-            <span className="text-orange-400/50 text-[10px] normal-case font-medium tracking-normal italic">&#8594; challenges {c.targetAgentId.replace('_', ' ')}</span>
-          </span>
-        </div>
-        <p className="text-sm text-white/90 leading-relaxed font-medium">{c.counterHypothesis}</p>
-      </div>
-    );
+    const challenge = event.data;
+    return {
+      align: 'left' as const,
+      label: 'Round 1 challenge',
+      title: `${challenge.challengerAgentId.replace(/_/g, ' ')} challenges ${challenge.targetAgentId.replace(/_/g, ' ')}`,
+      body: challenge.counterHypothesis,
+      meta: 'round 1 challenge',
+      accent: 'border-orange-400/20 bg-[rgba(39,24,8,0.9)] text-orange-200',
+      labelClass: 'text-orange-300',
+      bodyClass: 'text-orange-50',
+      avatarLabel: challenge.challengerAgentId.slice(0, 3),
+      panelClass: 'border-orange-400/15 bg-[rgba(33,20,7,0.84)]',
+      evidence: [],
+      note: '',
+      noteValue: '',
+    };
   }
 
   if (event.type === 'rebuttal') {
-    const r = event.data;
-    const isDefend = r.position === 'DEFEND';
-    return (
-      <div className={`flex flex-col gap-2 p-4 rounded-xl border shadow-sm ml-16 relative transition-colors ${isDefend ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-red-500/10 border-red-500/20 hover:bg-red-500/20'}`}>
-        <div className={`absolute -left-4 top-5 w-4 h-[1px] ${isDefend ? 'bg-indigo-500/30' : 'bg-red-500/30'}`} />
-        <div className={`absolute -left-[17px] top-[18px] w-2 h-2 rounded-full ${isDefend ? 'bg-indigo-500/50' : 'bg-red-500/50'}`} />
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-[11px] uppercase font-bold tracking-widest flex items-center gap-2 ${isDefend ? 'text-indigo-400' : 'text-red-400'}`}>
-            {r.respondingAgentId.replace('_', ' ')}
-          </span>
-          <span className="text-[9px] text-white/90 px-2 py-1 rounded bg-black/30 font-bold tracking-widest">{r.position}</span>
-        </div>
-        <p className={`text-sm font-medium leading-relaxed ${isDefend ? 'text-indigo-100' : 'text-red-100'}`}>
-          {isDefend ? "I maintain my hypothesis given the evidence." : "I concede to the challenge's points."}
-        </p>
-        <div className="mt-2 bg-black/20 p-2 rounded-lg inline-block self-start">
-            <p className="text-xs text-mist/80">Updated confidence: <span className="font-mono text-white/90">{Math.round(r.updatedConfidence * 100)}%</span></p>
-        </div>
-      </div>
-    );
+    const rebuttal = event.data;
+    const isDefend = rebuttal.position === 'DEFEND';
+
+    return {
+      align: 'right' as const,
+      label: 'Round 2 rebuttal',
+      title: `${rebuttal.respondingAgentId.replace(/_/g, ' ')} ${rebuttal.position.toLowerCase()}`,
+      body:
+        rebuttal.position === 'DEFEND'
+          ? 'I maintain the original finding and the confidence still holds.'
+          : 'I concede the challenge and lower confidence accordingly.',
+      meta: `${Math.round(rebuttal.updatedConfidence * 100)}% confidence`,
+      accent: isDefend
+        ? 'border-indigo-400/20 bg-[rgba(20,18,42,0.92)] text-indigo-100'
+        : 'border-rose-400/20 bg-[rgba(40,12,18,0.9)] text-rose-100',
+      labelClass: isDefend ? 'text-indigo-300' : 'text-rose-300',
+      bodyClass: isDefend ? 'text-indigo-50' : 'text-rose-50',
+      avatarLabel: rebuttal.respondingAgentId.slice(0, 3),
+      panelClass: isDefend
+        ? 'border-indigo-400/15 bg-[rgba(17,20,38,0.9)]'
+        : 'border-rose-400/15 bg-[rgba(35,13,18,0.9)]',
+      evidence: [],
+      note: 'Rebuttal factor',
+      noteValue: `${Math.round(rebuttal.rebuttalFactor * 100)}%`,
+    };
   }
 
-  if (event.type === 'decision') {
-    const d = event.data;
-    const isHigh = d.riskTier === 'HIGH';
-    const isMed = d.riskTier === 'MEDIUM';
-    return (
-      <div className="flex flex-col gap-3 bg-[#1b1126] p-5 rounded-xl border-2 border-[#a855f7]/30 shadow-[0_0_30px_-5px_rgba(168,85,247,0.2)] mt-6">
-        <div className="flex items-center justify-between pb-3 border-b border-[#a855f7]/20">
-          <span className="text-[13px] uppercase font-black tracking-widest text-[#a855f7] flex items-center gap-2">
-            <span className="bg-[#a855f7]/20 p-1.5 rounded-md">âš–ï¸</span> JUDGE VERDICT
-          </span>
-          <div className="flex gap-2">
-            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider ${isHigh ? 'bg-red-500/20 text-red-400' : isMed ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'}`}>
-                {d.riskTier} RISK
-            </span>
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider bg-white/10 text-white/90 font-mono">
-                SCORE: {Math.round(d.compositeScore * 100)}
-            </span>
-          </div>
-        </div>
-        <div className="space-y-4 mt-1">
-            <div>
-                <p className="text-[10px] uppercase font-bold tracking-widest text-mist/50 mb-1.5">Reasoning</p>
-                <p className="text-sm text-white/90 leading-relaxed italic border-l-2 border-white/10 pl-3">"{d.reasoning}"</p>
-            </div>
-            <div className="bg-black/40 p-3 rounded-lg border border-white/5">
-                <p className="text-[10px] uppercase font-bold tracking-widest text-mist/50 mb-1.5">Recommended Action</p>
-                <p className="text-[13px] text-[#10B981] font-mono leading-relaxed">&gt; {d.recommendedAction}</p>
-            </div>
-        </div>
-      </div>
-    );
-  }
+  return {
+    align: 'left' as const,
+    label: 'Judge verdict',
+    title: 'Final decision',
+    body: event.data.reasoning,
+    meta: `${event.data.riskTier} risk`,
+    accent: 'border-violet-400/20 bg-[rgba(26,13,39,0.92)] text-violet-100',
+    labelClass: 'text-violet-300',
+    bodyClass: 'text-violet-50',
+    avatarLabel: 'JDG',
+    panelClass: 'border-violet-400/15 bg-[rgba(25,13,38,0.9)]',
+    evidence: [],
+    note: 'Recommended action',
+    noteValue: event.data.recommendedAction,
+  };
+}
 
-  return null;
+function useTypewriter(text: string): string {
+  const [displayed, setDisplayed] = useState('');
+
+  useEffect(() => {
+    setDisplayed('');
+
+    if (!text) {
+      return;
+    }
+
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index += 3;
+      setDisplayed(text.slice(0, index));
+
+      if (index >= text.length) {
+        window.clearInterval(timer);
+      }
+    }, 12);
+
+    return () => window.clearInterval(timer);
+  }, [text]);
+
+  return displayed;
 }

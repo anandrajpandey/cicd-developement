@@ -7,64 +7,75 @@ import { trpcClient } from '../lib/trpc/client';
 const SCENARIOS = [
   {
     id: 'risk-low',
-    title: 'Low Risk: Formatting / Linter Error',
-    description: 'A benign Prettier or ESLint style warning. Unlikely to cause production outages.',
+    title: 'Low Risk: Linter Warnings',
+    description: 'ESLint style warnings on formatting and code quality. Safe to ignore with discussion.',
     tier: 'LOW',
-    failureType: 'lint_error',
-    errorLog: `Warning: Multiple spaces found before 'import' declaration. (no-multi-spaces)
-  at src/components/button.tsx:4:1
-Warning: Missing trailing comma. (comma-dangle)
-  at src/utils/format.ts:12:15
-Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)`,
+    failureType: 'simulation_easy',
+    errorLog: `ESLint Report: Lint warnings detected in the build.
+  File: src/components/Header.tsx:14:32
+    Warning: Multiple trailing spaces found. (no-trailing-spaces)
+  File: src/utils/helpers.ts:42:1
+    Warning: Unused variable 'tempVar' declared. (no-unused-vars)
+  File: src/pages/Dashboard.tsx:8:5
+    Warning: React Hook missing dependency: 'data'. (react-hooks/exhaustive-deps)
+  
+Build completed with 3 lint warnings. Consider fixing before merge.`,
     outline: 'border-lime-400/70',
     accent: 'text-lime-300',
     button: 'border-lime-400/40 text-lime-100 hover:bg-lime-400/10',
   },
   {
     id: 'risk-medium',
-    title: 'Medium Risk: Failing Unit Test',
+    title: 'Medium Risk: Test Failure (Migration Mismatch)',
     description:
-      'A localized unit test failure on a non-critical utility module preventing a passing CI.',
+      'Unit test failure due to schema mismatch after partial migration. Requires schema sync.',
     tier: 'MEDIUM',
-    failureType: 'test_failure',
-    errorLog: `FAIL  src/__tests__/mathUtils.test.ts
-  ✕ calculates compound interest correctly (15 ms)
+    failureType: 'simulation_medium',
+    errorLog: `Unit Test Failures Detected:
 
-  â—  calculates compound interest correctly
+FAIL  src/__tests__/userService.test.ts
+  X should fetch user profile correctly (234ms)
+    AssertionError: expected null to equal Object {
+      id: '123',
+      email: 'test@example.com',
+      role: 'admin'
+    }
+      at UserService.getProfile (src/services/userService.ts:45:11)
+      at async Object.<anonymous> (src/__tests__/userService.test.ts:18:5)
+  
+  - should fetch user profile correctly
+    The API response structure changed but migration script was not executed.
+    Schema mismatch detected: expected 'profile' field but got 'user_profile' in database.
 
-    expect(received).toBe(expected) // Object.is equality
-
-    Expected: 105.00
-    Received: 100.50
-
-      22 |   it('calculates compound interest correctly', () => {
-      23 |     const result = calculateInterest(100, 0.05, 1);
-    > 24 |     expect(result).toBe(105.00);
-         |                    ^`,
+Test Summary: 1 failed, 23 passed (156ms total)`,
     outline: 'border-yellow-300/70',
     accent: 'text-yellow-200',
     button: 'border-yellow-300/40 text-yellow-100 hover:bg-yellow-300/10',
   },
   {
     id: 'risk-high',
-    title: 'High Risk: Critical Dependency Security Exploit / Missing Root Module',
+    title: 'High Risk: Database Schema Constraint Violation',
     description:
-      'A severe CVE vulnerability or missing critical dependency causing a catastrophic build failure.',
+      'Critical migration dropping table with 8 active foreign key dependencies. Will cause cascading failures.',
     tier: 'HIGH',
-    failureType: 'integration_test_failure',
-    errorLog: `Error: Critical Vulnerability Detected!
-[CVE-2026-99123] Arbitrary Code Execution via compromised package 'express-core'
-Severity: CRITICAL
-  --> Found in package.json dependencies lock
-Build aggressively halted by security gate.
+    failureType: 'simulation_hard',
+    errorLog: `CRITICAL BUILD FAILURE: Database Migration Failed.
 
-FATAL ERROR: In addition, Webpack failed to resolve module 'root-crypto-engine'.
-Module not found: Error: Can't resolve 'root-crypto-engine' in '/src/auth'
+Error in migration 20260427_drop_legacy_tables.sql:
+  CONSTRAINT VIOLATION: Cannot drop table 'invoices_v1' - 8 active foreign key constraints depend on it.
+  Dependent objects: batch_jobs.reference_invoice_id, reports.invoice_source, webhooks.payload
 
-FAIL  src/tests/billing-cycle.test.ts
-  ✖ integration test failed to start due to missing crypto engine
-
-Lint Error: legacy_invoices table is deprecated and missing.`,
+Error in test: src/tests/integration/payments.test.ts
+  X should process monthly billing cycles (1245ms)
+    QueryFailedError: relation "invoices_v1" does not exist
+      at ConnectionPool.query (src/db/pool.ts:89:15)
+      at Billing.processInvoices (src/billing/processor.ts:142:8)
+  
+  CRITICAL: This PR drops critical table 'invoices_v1' that 5 microservices depend on.
+  3 background workers will crash on deployment. Multiple data integrity issues detected.
+  
+Build Status: FAILED (0 tests passed, 1 critical failure).
+Deployment blocked. Manual database intervention required.`,
     outline: 'border-red-400/70',
     accent: 'text-red-200',
     button: 'border-red-400/40 text-red-100 hover:bg-red-400/10',

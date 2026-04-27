@@ -7,7 +7,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/server.ts",
-    "analyze:sample": "tsx src/scripts/analyze-sample.ts"
+    "analyze:sample": "tsx src/scripts/analyze-sample.ts",
+    "simulate:easy": "tsx src/scripts/test-low-risk.ts",
+    "simulate:easy:deterministic": "tsx src/scripts/test-low-risk.ts --deterministic",
+    "simulate:medium": "tsx src/scripts/test-medium-risk.ts",
+    "simulate:medium:deterministic": "tsx src/scripts/test-medium-risk.ts --deterministic",
+    "simulate:hard": "tsx src/scripts/test-high-risk.ts",
+    "simulate:hard:deterministic": "tsx src/scripts/test-high-risk.ts --deterministic"
   },
   "dependencies": {
     "@agentic-cicd/db": "workspace:*",
