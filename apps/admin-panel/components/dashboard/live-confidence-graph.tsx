@@ -396,13 +396,13 @@ export function LiveConfidenceGraph({
             </div>
             <div className="text-right">
               <div className="text-2xl font-semibold text-white">
-                {Math.round(agent.latest * 100)}%
+                {Math.round(agent.average * 100)}%
               </div>
               <div className="mt-2 h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full"
                   style={{
-                    width: `${Math.round(agent.latest * 100)}%`,
+                    width: `${Math.round(agent.average * 100)}%`,
                     background: agent.color,
                   }}
                 />

@@ -59,6 +59,138 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
 
+<<<<<<< HEAD
+=======
+function sanitizeJsonControlChars(input: string): string {
+  let output = '';
+  let inString = false;
+  let escaping = false;
+
+  for (const char of input) {
+    const code = char.charCodeAt(0);
+
+    if (inString) {
+      if (escaping) {
+        output += char;
+        escaping = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        output += char;
+        escaping = true;
+        continue;
+      }
+
+      if (char === '"') {
+        output += char;
+        inString = false;
+        continue;
+      }
+
+      if (code < 0x20) {
+        if (char === '\n') {
+          output += '\\n';
+        } else if (char === '\r') {
+          output += '\\r';
+        } else if (char === '\t') {
+          output += '\\t';
+        } else {
+          output += `\\u${code.toString(16).padStart(4, '0')}`;
+        }
+        continue;
+      }
+
+      output += char;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+
+    if (code === 0xfeff || code === 0x00) {
+      continue;
+    }
+
+    if (code < 0x20 && char !== '\n' && char !== '\r' && char !== '\t') {
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
+}
+
+function extractBalancedJsonObject(input: string): string | null {
+  let startIndex = -1;
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+
+    if (startIndex === -1) {
+      if (char === '{') {
+        startIndex = index;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === '\\') {
+        escaping = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return input.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractJsonObject(input: string): string {
+  const trimmed = input.trim();
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidates = codeFenceMatch ? [trimmed, codeFenceMatch[1]] : [trimmed];
+
+  for (const candidate of candidates) {
+    const sanitized = sanitizeJsonControlChars(candidate);
+    const jsonObject = extractBalancedJsonObject(sanitized);
+    if (jsonObject) {
+      return jsonObject;
+    }
+  }
+
+  throw new Error('No JSON object found in model response.');
+}
+
+>>>>>>> 1f5da62b1c3f7dbb341f061521e70a973a6bf24d
 function clampConfidence(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
@@ -487,6 +619,36 @@ export async function loadCodeContext(event: PipelineEvent): Promise<CodeContext
 }
 
 function fallbackFinding(agentId: AgentId, event: PipelineEvent, reason: string): AgentFinding {
+  const simulationMatch = event.failureType.match(/^simulation_(easy|medium|hard)$/i);
+  if (simulationMatch) {
+    const difficulty = simulationMatch[1].toLowerCase();
+    const simulationConfidenceByDifficulty: Record<'easy' | 'medium' | 'hard', number> = {
+      easy: 0.25,
+      medium: 0.55,
+      hard: 0.9,
+    };
+
+    const confidence = simulationConfidenceByDifficulty[difficulty as 'easy' | 'medium' | 'hard'];
+    return {
+      findingId: randomUUID(),
+      agentId,
+      eventId: event.eventId,
+      hypothesis: `${agentId} simulated ${difficulty} severity assessment was used.`,
+      evidence: [
+        `failureType=${event.failureType}`,
+        `repository=${event.repository}`,
+        `errorLog_length=${event.errorLog.length}`,
+      ],
+      confidence,
+      proposedRemediation:
+        difficulty === 'easy'
+          ? 'Apply formatting or lint fixes and rerun CI.'
+          : difficulty === 'medium'
+            ? 'Apply a targeted code/config fix and rerun CI before merging.'
+            : 'Pause deployment, investigate root cause, and require explicit approval.',
+    };
+  }
+
   if (event.errorLog.includes('System Prompt Injection')) {
     if (agentId === 'code_reviewer') {
       return {
@@ -545,6 +707,7 @@ export async function analyzeWithPrompt(
   prompt: string,
   event: PipelineEvent,
 ): Promise<AgentFinding> {
+<<<<<<< HEAD
   let codeContext: CodeContextEntry[] = [];
   try {
     // Timeout code context loading at 10 seconds to prevent blocking analysis
@@ -557,6 +720,13 @@ export async function analyzeWithPrompt(
   } catch {
     // If code context fails, proceed with empty context
   }
+=======
+  if (process.env.SIMULATION_FORCE_FALLBACK === 'true') {
+    return fallbackFinding(agentId, event, 'Simulation forced native fallback.');
+  }
+
+  const codeContext = await loadCodeContext(event);
+>>>>>>> 1f5da62b1c3f7dbb341f061521e70a973a6bf24d
   const userMessage = JSON.stringify(
     {
       eventId: event.eventId,

@@ -4,6 +4,9 @@
   "packageManager": "pnpm@10.18.0",
   "scripts": {
     "build": "turbo run build",
+    "start:backend": "pnpm --filter @agentic-cicd/orchestrator dev",
+    "start:backend:prod": "pnpm -w -s --filter @agentic-cicd/orchestrator --parallel build && node -r dotenv/config apps/orchestrator/dist/server.js",
+    "simulate:mock": "cross-env SIMULATION_MOCK_LLM=true pnpm --filter @agentic-cicd/orchestrator simulate:easy",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
     "format:check": "prettier --check .",
@@ -24,6 +27,8 @@
     "tsx": "^4.20.3",
     "turbo": "^2.1.3",
     "typescript-eslint": "^8.31.1",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "cross-env": "^7.0.3"
   }
+
 }

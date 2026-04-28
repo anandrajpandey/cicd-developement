@@ -32,7 +32,7 @@ Examples:
 
     const commandToRun = await chat(
       [{ role: 'user', content: prompt }],
-      'groq/llama-3.1-8b-instant',
+      'llama-3.3-70b-versatile',
     ).catch(() => '');
 
     if (commandToRun && !commandToRun.includes('```') && !commandToRun.includes('sed')) {
