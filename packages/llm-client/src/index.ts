@@ -46,7 +46,7 @@ interface FetchResponseLike {
 }
 
 interface ChatClientDependencies {
-  createGroqClient?: (apiKey?: string) => GroqCompletionClient;
+  createGroqClient?: () => GroqCompletionClient;
   fetchFn?: (
     input: string,
     init: {
@@ -60,19 +60,9 @@ interface ChatClientDependencies {
   timeoutMs?: number;
 }
 
-export interface ChatRequestOptions {
-  groqApiKey?: string;
-  ollamaBaseUrl?: string;
-  ollamaModel?: string;
-}
+function getGroqClient(): GroqCompletionClient {
+  const apiKey = process.env.GROQ_API_KEY;
 
-export type ChatClient = (
-  messages: ChatMessage[],
-  model?: string,
-  options?: ChatRequestOptions,
-) => Promise<string>;
-
-function getGroqClient(apiKey?: string): GroqCompletionClient {
   if (!apiKey) {
     throw new LlmClientError('GROQ_API_KEY is required for Groq requests.', false);
   }
@@ -80,8 +70,8 @@ function getGroqClient(apiKey?: string): GroqCompletionClient {
   return new Groq({ apiKey });
 }
 
-function getOllamaBaseUrl(override?: string): string {
-  return override ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+function getOllamaBaseUrl(): string {
+  return process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
 }
 
 function sleep(ms: number): Promise<void> {
@@ -168,9 +158,8 @@ async function requestGroq(
   messages: ChatMessage[],
   model: string,
   deps: Required<ChatClientDependencies>,
-  groqApiKey?: string,
 ): Promise<string> {
-  const groq = deps.createGroqClient(groqApiKey);
+  const groq = deps.createGroqClient();
 
   try {
     const completion = await withRetries(
@@ -199,11 +188,10 @@ async function requestOllama(
   messages: ChatMessage[],
   model: string,
   deps: Required<ChatClientDependencies>,
-  ollamaBaseUrl?: string,
 ): Promise<string> {
   try {
     const response = await withRetries(async () => {
-      const request = await deps.fetchFn(`${getOllamaBaseUrl(ollamaBaseUrl)}/api/chat`, {
+      const request = await deps.fetchFn(`${getOllamaBaseUrl()}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -248,7 +236,7 @@ async function requestOllama(
   }
 }
 
-export function createChatClient(overrides: ChatClientDependencies = {}): ChatClient {
+export function createChatClient(overrides: ChatClientDependencies = {}) {
   const deps: Required<ChatClientDependencies> = {
     createGroqClient: overrides.createGroqClient ?? getGroqClient,
     fetchFn:
@@ -257,34 +245,10 @@ export function createChatClient(overrides: ChatClientDependencies = {}): ChatCl
     timeoutMs: overrides.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
 
-  return async function chat(
-    messages: ChatMessage[],
-    model = DEFAULT_GROQ_MODEL,
-    options: ChatRequestOptions = {},
-  ): Promise<string> {
-    const groqApiKey = options.groqApiKey;
-    const ollamaModel = options.ollamaModel ?? DEFAULT_OLLAMA_MODEL;
-    const ollamaBaseUrl = options.ollamaBaseUrl;
-
-    const forceOllama = process.env.SIMULATION_FORCE_OLLAMA === 'true';
-    const groqProvided = !forceOllama && typeof groqApiKey === 'string' && groqApiKey.trim().length > 0;
-    const maskedGroq = groqProvided
-      ? groqApiKey!.length > 8
-        ? `${groqApiKey!.slice(0, 4)}...${groqApiKey!.slice(-4)}`
-        : '***short***'
-      : 'none';
-
-    console.info(
-      `[llm-client] chat() called model=${model} groqProvided=${groqProvided} groqMask=${maskedGroq} ollamaModel=${ollamaModel} forceOllama=${forceOllama}`,
-    );
-
-    if (!groqApiKey) {
-      return requestOllama(messages, ollamaModel, deps, ollamaBaseUrl);
-    }
-
+  return async function chat(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL): Promise<string> {
     try {
       return await Promise.race([
-        requestGroq(messages, model, deps, groqApiKey),
+        requestGroq(messages, model, deps),
         new Promise<string>((_, reject) => {
           setTimeout(() => {
             reject(new LlmClientError('groq request timed out.', true));
@@ -296,28 +260,12 @@ export function createChatClient(overrides: ChatClientDependencies = {}): ChatCl
       console.warn('Groq failed, falling back to Ollama. Groq error:', error);
 
       if (!normalizedError.retryable) {
-        return requestOllama(messages, ollamaModel, deps, ollamaBaseUrl);
+        throw normalizedError;
       }
 
-      return requestOllama(messages, ollamaModel, deps, ollamaBaseUrl);
+      return requestOllama(messages, DEFAULT_OLLAMA_MODEL, deps);
     }
   };
 }
 
-// Allow a deterministic mock mode for local simulations and CI where external LLMs
-// should not be contacted. Set `SIMULATION_MOCK_LLM=true` in the env to enable.
-const SIMULATION_MOCK = process.env.SIMULATION_MOCK_LLM === 'true';
-
-if (SIMULATION_MOCK) {
-  console.info('[llm-client] SIMULATION_MOCK_LLM is active — returning deterministic responses');
-}
-
-export const chat: ChatClient = SIMULATION_MOCK
-  ? async (messages: ChatMessage[], model = DEFAULT_GROQ_MODEL) => {
-      const promptSummary = messages
-        .slice(-1)
-        .map((m) => `${m.role}:${(m.content || '').slice(0, 120)}`)
-        .join(' | ');
-      return `SIMULATION_RESPONSE model=${model} prompt=${promptSummary}`;
-    }
-  : createChatClient();
+export const chat = createChatClient();

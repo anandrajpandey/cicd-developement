@@ -39,8 +39,8 @@ import { judgePrompt } from '../prompts/judge.js';
 import { testAnalyzerPrompt } from '../prompts/test-analyzer.js';
 import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.js';
 
-const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
-const DEFAULT_OLLAMA_MODEL = 'mistral:7b';
+const PRIMARY_MODEL = 'groq/llama-3.1-8b-instant';
+const FALLBACK_MODEL = 'ollama/mistral:7b';
 const ADK_EXECUTION_TIMEOUT_MS = 60_000; // Increased to 60s for local LLM inference
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
@@ -70,76 +70,10 @@ const roundZeroAgentIds = [
   'dependency_checker',
 ] as const satisfies readonly AgentId[];
 
-const specialistAgentModels = {
-  build_analyzer: {
-    apiKeyEnv: 'BUILD_ANALYZER_GROQ_API_KEY',
-    modelEnv: 'BUILD_ANALYZER_GROQ_MODEL',
-    defaultModel: DEFAULT_GROQ_MODEL,
-  },
-  code_reviewer: {
-    apiKeyEnv: 'CODE_REVIEWER_GROQ_API_KEY',
-    modelEnv: 'CODE_REVIEWER_GROQ_MODEL',
-    defaultModel: DEFAULT_GROQ_MODEL,
-  },
-  test_analyzer: {
-    apiKeyEnv: 'TEST_ANALYZER_GROQ_API_KEY',
-    modelEnv: 'TEST_ANALYZER_GROQ_MODEL',
-    defaultModel: DEFAULT_GROQ_MODEL,
-  },
-  dependency_checker: {
-    apiKeyEnv: 'DEPENDENCY_CHECKER_GROQ_API_KEY',
-    modelEnv: 'DEPENDENCY_CHECKER_GROQ_MODEL',
-    defaultModel: DEFAULT_GROQ_MODEL,
-  },
-  debate_reasoner: {
-    apiKeyEnv: 'DEBATE_REASONER_GROQ_API_KEY',
-    modelEnv: 'DEBATE_REASONER_GROQ_MODEL',
-    defaultModel: DEFAULT_GROQ_MODEL,
-  },
-} as const;
-
-function readEnv(name: string, fallback: string): string {
-  const value = process.env[name]?.trim();
-  return value && value.length > 0 ? value : fallback;
-}
-
-function buildBridgeModel(provider: 'groq' | 'ollama', agentId: string, model: string): string {
-  return `${provider}:${agentId}:${model}`;
-}
-
-function parseBridgeModel(model: string): { provider: 'groq' | 'ollama'; agentId: string; modelName: string } {
-  const [provider, agentId = '', ...modelParts] = model.split(':');
-  const normalizedProvider = provider === 'ollama' ? 'ollama' : 'groq';
-  const modelName = modelParts.length > 0 ? modelParts.join(':') : DEFAULT_GROQ_MODEL;
-
-  return {
-    provider: normalizedProvider,
-    agentId,
-    modelName,
-  };
-}
-
-function resolveGroqApiKey(agentId: keyof typeof specialistAgentModels): string | undefined {
-  const config = specialistAgentModels[agentId];
-  const apiKey = process.env[config.apiKeyEnv]?.trim();
-  const present = typeof apiKey === 'string' && apiKey.length > 0;
-  console.info(`[adk] resolveGroqApiKey agent=${agentId} envVar=${config.apiKeyEnv} present=${present}`);
-  return present ? apiKey : undefined;
-}
-
-function resolveAgentModel(agentId: keyof typeof specialistAgentModels): string {
-  const config = specialistAgentModels[agentId];
-  return readEnv(config.modelEnv, config.defaultModel);
-}
-
-function resolveOllamaModel(): string {
-  return readEnv('OLLAMA_FALLBACK_MODEL', DEFAULT_OLLAMA_MODEL);
-}
-
 loadEnv();
 
 class GroqBridgeLlm extends BaseLlm {
-  static supportedModels = [/^(groq|ollama):.+:.+$/];
+  static supportedModels = [/^groq\/.+$/, /^ollama\/.+$/];
 
   override async *generateContentAsync(
     request: Parameters<Gemini['generateContentAsync']>[0],
@@ -148,7 +82,7 @@ class GroqBridgeLlm extends BaseLlm {
     this.maybeAppendUserContent(request);
 
     const model = request.model ?? this.model;
-    const parsedModel = parseBridgeModel(model);
+    const normalizedModel = model.replace(/^(groq|ollama)\//, '');
     const systemInstruction =
       typeof request.config?.systemInstruction === 'string'
         ? request.config.systemInstruction.trim()
@@ -184,17 +118,7 @@ class GroqBridgeLlm extends BaseLlm {
       ];
     });
 
-    console.info(
-      `[adk] GroqBridgeLlm request provider=${parsedModel.provider} agentId=${parsedModel.agentId} model=${parsedModel.modelName}`,
-    );
-
-    const response = await chat([...systemMessages, ...messages], parsedModel.modelName, {
-      groqApiKey:
-        parsedModel.provider === 'groq' && parsedModel.agentId in specialistAgentModels
-          ? resolveGroqApiKey(parsedModel.agentId as keyof typeof specialistAgentModels)
-          : undefined,
-      ollamaModel: resolveOllamaModel(),
-    });
+    const response = await chat([...systemMessages, ...messages], normalizedModel);
 
     yield {
       content: {
@@ -213,14 +137,12 @@ class GroqBridgeLlm extends BaseLlm {
 
 LLMRegistry.register(GroqBridgeLlm);
 
-function withFallbackNote(instruction: string, agentId: keyof typeof specialistAgentModels): string {
-  const primaryModel = resolveAgentModel(agentId);
-
+function withFallbackNote(instruction: string): string {
   return `${instruction}
 
 Execution note:
-- Primary inference target: groq:${agentId}:${primaryModel}
-- Fallback inference target: ollama:${agentId}:${resolveOllamaModel()}`;
+- Primary inference target: ${PRIMARY_MODEL}
+- Fallback inference target: ${FALLBACK_MODEL}`;
 }
 
 function withFindingOutputRules(instruction: string): string {
@@ -317,22 +239,6 @@ function groundJudgeRecommendedAction(
   return recommendedAction;
 }
 
-function normalizeJudgeRecommendedAction(value: unknown): string {
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-
-  if (Array.isArray(value)) {
-    return value
-      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-      .map((entry) => entry.trim())
-      .join('\n')
-      .trim();
-  }
-
-  return '';
-}
-
 function buildGroundedJudgeInput(
   input: {
     event: PipelineEvent;
@@ -390,57 +296,57 @@ Rules:
 
 export const buildAnalyzerAdkAgent = new LlmAgent({
   name: 'build_analyzer',
-  model: buildBridgeModel('groq', 'build_analyzer', resolveAgentModel('build_analyzer')),
+  model: PRIMARY_MODEL,
   description: 'Analyzes build failures, compiler issues, and runtime mismatch problems.',
-  instruction: withFallbackNote(withFindingOutputRules(buildAnalyzerPrompt), 'build_analyzer'),
+  instruction: withFallbackNote(withFindingOutputRules(buildAnalyzerPrompt)),
   outputKey: 'build_analyzer_finding',
 });
 
 export const codeReviewerAdkAgent = new LlmAgent({
   name: 'code_reviewer',
-  model: buildBridgeModel('groq', 'code_reviewer', resolveAgentModel('code_reviewer')),
+  model: PRIMARY_MODEL,
   description: 'Inspects code-quality and logic-level causes behind pipeline failures.',
-  instruction: withFallbackNote(withFindingOutputRules(codeReviewerPrompt), 'code_reviewer'),
+  instruction: withFallbackNote(withFindingOutputRules(codeReviewerPrompt)),
   outputKey: 'code_reviewer_finding',
 });
 
 export const testAnalyzerAdkAgent = new LlmAgent({
   name: 'test_analyzer',
-  model: buildBridgeModel('groq', 'test_analyzer', resolveAgentModel('test_analyzer')),
+  model: PRIMARY_MODEL,
   description: 'Investigates regression, flaky test, and test setup causes.',
-  instruction: withFallbackNote(withFindingOutputRules(testAnalyzerPrompt), 'test_analyzer'),
+  instruction: withFallbackNote(withFindingOutputRules(testAnalyzerPrompt)),
   outputKey: 'test_analyzer_finding',
 });
 
 export const dependencyCheckerAdkAgent = new LlmAgent({
   name: 'dependency_checker',
-  model: buildBridgeModel('groq', 'dependency_checker', resolveAgentModel('dependency_checker')),
+  model: PRIMARY_MODEL,
   description: 'Checks dependency conflicts, missing packages, and version breakage.',
-  instruction: withFallbackNote(withFindingOutputRules(dependencyCheckerPrompt), 'dependency_checker'),
+  instruction: withFallbackNote(withFindingOutputRules(dependencyCheckerPrompt)),
   outputKey: 'dependency_checker_finding',
 });
 
 export const crossChallengeAdkAgent = new LlmAgent({
   name: 'cross_challenge',
-  model: buildBridgeModel('groq', 'debate_reasoner', resolveAgentModel('debate_reasoner')),
+  model: PRIMARY_MODEL,
   description: 'Reviews findings for contradictions and proposes valid challenges.',
-  instruction: withFallbackNote(withChallengeOutputRules(crossChallengePrompt), 'debate_reasoner'),
+  instruction: withFallbackNote(withChallengeOutputRules(crossChallengePrompt)),
   outputKey: 'cross_challenge_result',
 });
 
 export const rebuttalAdkAgent = new LlmAgent({
   name: 'rebuttal',
-  model: buildBridgeModel('groq', 'debate_reasoner', resolveAgentModel('debate_reasoner')),
+  model: PRIMARY_MODEL,
   description: 'Defends or concedes in response to a challenge.',
-  instruction: withFallbackNote(withRebuttalOutputRules(rebuttalPrompt), 'debate_reasoner'),
+  instruction: withFallbackNote(withRebuttalOutputRules(rebuttalPrompt)),
   outputKey: 'rebuttal_result',
 });
 
 export const judgeAdkAgent = new LlmAgent({
   name: 'judge',
-  model: buildBridgeModel('groq', 'debate_reasoner', resolveAgentModel('debate_reasoner')),
+  model: PRIMARY_MODEL,
   description: 'Synthesizes final reasoning, score interpretation, and recommended action.',
-  instruction: withFallbackNote(withJudgeOutputRules(judgePrompt), 'debate_reasoner'),
+  instruction: withFallbackNote(withJudgeOutputRules(judgePrompt)),
   outputKey: 'judge_decision',
 });
 
@@ -515,138 +421,6 @@ export interface AdkRebuttalResult {
   errorMessage?: string;
 }
 
-<<<<<<< HEAD
-=======
-function sanitizeJsonControlChars(input: string): string {
-  let output = '';
-  let inString = false;
-  let escaping = false;
-
-  for (const char of input) {
-    const code = char.charCodeAt(0);
-
-    if (inString) {
-      if (escaping) {
-        output += char;
-        escaping = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        output += char;
-        escaping = true;
-        continue;
-      }
-
-      if (char === '"') {
-        output += char;
-        inString = false;
-        continue;
-      }
-
-      if (code < 0x20) {
-        if (char === '\n') {
-          output += '\\n';
-        } else if (char === '\r') {
-          output += '\\r';
-        } else if (char === '\t') {
-          output += '\\t';
-        } else {
-          output += `\\u${code.toString(16).padStart(4, '0')}`;
-        }
-        continue;
-      }
-
-      output += char;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      output += char;
-      continue;
-    }
-
-    if (code === 0xfeff || code === 0x00) {
-      continue;
-    }
-
-    if (code < 0x20 && char !== '\n' && char !== '\r' && char !== '\t') {
-      continue;
-    }
-
-    output += char;
-  }
-
-  return output;
-}
-
-function extractBalancedJsonObject(input: string): string | null {
-  let startIndex = -1;
-  let depth = 0;
-  let inString = false;
-  let escaping = false;
-
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index];
-
-    if (startIndex === -1) {
-      if (char === '{') {
-        startIndex = index;
-        depth = 1;
-      }
-      continue;
-    }
-
-    if (inString) {
-      if (escaping) {
-        escaping = false;
-      } else if (char === '\\') {
-        escaping = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === '{') {
-      depth += 1;
-      continue;
-    }
-
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return input.slice(startIndex, index + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractJsonObject(input: string): string {
-  const trimmed = input.trim();
-  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidates = codeFenceMatch ? [trimmed, codeFenceMatch[1]] : [trimmed];
-
-  for (const candidate of candidates) {
-    const sanitized = sanitizeJsonControlChars(candidate);
-    const jsonObject = extractBalancedJsonObject(sanitized);
-    if (jsonObject) {
-      return jsonObject;
-    }
-  }
-
-  throw new Error('No JSON object found in ADK agent response.');
-}
-
->>>>>>> 1f5da62b1c3f7dbb341f061521e70a973a6bf24d
 function clampConfidence(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
@@ -1047,32 +821,16 @@ export async function executeAdkJudge(input: {
         };
       }
 
-<<<<<<< HEAD
       const parsed = parseModelJson<unknown>(rawPayload, 'ADK judge response');
       const judgeDecision = judgePayloadSchema.parse(parsed);
-=======
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as {
-        reasoning?: unknown;
-        recommendedAction?: unknown;
-      };
-      const normalizedReasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning.trim() : '';
-      const normalizedRecommendedAction = normalizeJudgeRecommendedAction(parsed.recommendedAction);
-
-      if (!normalizedReasoning || !normalizedRecommendedAction) {
-        return {
-          status: 'failed' as const,
-          errorMessage: 'Invalid ADK judge payload was returned.',
-        };
-      }
->>>>>>> 1f5da62b1c3f7dbb341f061521e70a973a6bf24d
 
       return {
         status: 'completed' as const,
-        reasoning: normalizedReasoning,
+        reasoning: judgeDecision.reasoning,
         recommendedAction: groundJudgeRecommendedAction(
           input.event,
           input.findings,
-          normalizedRecommendedAction,
+          judgeDecision.recommendedAction,
         ),
       };
     })();
@@ -1239,8 +997,8 @@ export function getAdkWorkflowSummary() {
   return {
     rootAgentName: debateWorkflowAdkAgent.name,
     appName: 'agentic-cicd-orchestrator',
-    primaryModel: `per-agent:${resolveAgentModel('build_analyzer')}`,
-    fallbackModel: `ollama:${resolveOllamaModel()}`,
+    primaryModel: PRIMARY_MODEL,
+    fallbackModel: FALLBACK_MODEL,
     phases: ['round_zero_parallel_analysis', 'cross_challenge', 'rebuttal', 'judge'],
     specialistAgents: ['build_analyzer', 'code_reviewer', 'test_analyzer', 'dependency_checker'],
   };

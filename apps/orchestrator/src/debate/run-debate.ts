@@ -76,152 +76,19 @@ async function withTimeout<T>(
   ]);
 }
 
-function sanitizeJsonControlChars(input: string): string {
-  let output = '';
-  let inString = false;
-  let escaping = false;
-
-  for (const char of input) {
-    const code = char.charCodeAt(0);
-
-    if (inString) {
-      if (escaping) {
-        output += char;
-        escaping = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        output += char;
-        escaping = true;
-        continue;
-      }
-
-      if (char === '"') {
-        output += char;
-        inString = false;
-        continue;
-      }
-
-      if (code < 0x20) {
-        if (char === '\n') {
-          output += '\\n';
-        } else if (char === '\r') {
-          output += '\\r';
-        } else if (char === '\t') {
-          output += '\\t';
-        } else {
-          output += `\\u${code.toString(16).padStart(4, '0')}`;
-        }
-        continue;
-      }
-
-      output += char;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      output += char;
-      continue;
-    }
-
-    if (code === 0xfeff || code === 0x00) {
-      continue;
-    }
-
-    if (code < 0x20 && char !== '\n' && char !== '\r' && char !== '\t') {
-      continue;
-    }
-
-    output += char;
-  }
-
-  return output;
-}
-
-function extractBalancedJsonObject(input: string): string | null {
-  let startIndex = -1;
-  let depth = 0;
-  let inString = false;
-  let escaping = false;
-
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index];
-
-    if (startIndex === -1) {
-      if (char === '{') {
-        startIndex = index;
-        depth = 1;
-      }
-      continue;
-    }
-
-    if (inString) {
-      if (escaping) {
-        escaping = false;
-      } else if (char === '\\') {
-        escaping = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === '{') {
-      depth += 1;
-      continue;
-    }
-
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return input.slice(startIndex, index + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractJsonObject(input: string): string {
-  const trimmed = input.trim();
-  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidates = codeFenceMatch ? [trimmed, codeFenceMatch[1]] : [trimmed];
-
-  for (const candidate of candidates) {
-    const sanitized = sanitizeJsonControlChars(candidate);
-    const jsonObject = extractBalancedJsonObject(sanitized);
-    if (jsonObject) {
-      return jsonObject;
-    }
-  }
-
-  throw new Error('No JSON object found in judge response.');
-}
-
 async function persistFindings(findings: AgentFinding[], eventId: string): Promise<void> {
-  try {
-    await db.insert(agentFindings).values(
-      findings.map((finding) => ({
-        findingId: finding.findingId,
-        agentId: finding.agentId,
-        eventId,
-        hypothesis: finding.hypothesis,
-        evidence: finding.evidence,
-        confidence: finding.confidence,
-        proposedRemediation: finding.proposedRemediation,
-        timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
-      })),
-    );
-  } catch (err) {
-    logger.warn('persistFindings failed; continuing without persistence', { error: err });
-  }
+  await db.insert(agentFindings).values(
+    findings.map((finding) => ({
+      findingId: finding.findingId,
+      agentId: finding.agentId,
+      eventId,
+      hypothesis: finding.hypothesis,
+      evidence: finding.evidence,
+      confidence: finding.confidence,
+      proposedRemediation: finding.proposedRemediation,
+      timedOut: finding.hypothesis.startsWith('TIMEOUT:'),
+    })),
+  );
 }
 
 async function emitRoundZeroFindings(eventId: string, findings: AgentFinding[]): Promise<void> {
@@ -238,21 +105,18 @@ async function persistChallenges(foundChallenges: Challenge[], eventId: string):
   if (foundChallenges.length === 0) {
     return;
   }
-  try {
-    await db.insert(challenges).values(
-      foundChallenges.map((challenge) => ({
-        challengeId: challenge.challengeId,
-        eventId,
-        challengerAgentId: challenge.challengerAgentId,
-        targetAgentId: challenge.targetAgentId,
-        counterHypothesis: challenge.counterHypothesis,
-        evidence: challenge.evidence,
-        confidence: challenge.confidence,
-      })),
-    );
-  } catch (err) {
-    logger.warn('persistChallenges failed; continuing without persistence', { error: err });
-  }
+
+  await db.insert(challenges).values(
+    foundChallenges.map((challenge) => ({
+      challengeId: challenge.challengeId,
+      eventId,
+      challengerAgentId: challenge.challengerAgentId,
+      targetAgentId: challenge.targetAgentId,
+      counterHypothesis: challenge.counterHypothesis,
+      evidence: challenge.evidence,
+      confidence: challenge.confidence,
+    })),
+  );
 }
 
 async function emitRoundOneChallenges(
@@ -271,21 +135,18 @@ async function persistRebuttals(foundRebuttals: Rebuttal[], eventId: string): Pr
   if (foundRebuttals.length === 0) {
     return;
   }
-  try {
-    await db.insert(rebuttals).values(
-      foundRebuttals.map((rebuttal) => ({
-        rebuttalId: rebuttal.rebuttalId,
-        eventId,
-        challengeId: rebuttal.challengeId,
-        respondingAgentId: rebuttal.respondingAgentId,
-        position: rebuttal.position,
-        updatedConfidence: rebuttal.updatedConfidence,
-        rebuttalFactor: rebuttal.rebuttalFactor,
-      })),
-    );
-  } catch (err) {
-    logger.warn('persistRebuttals failed; continuing without persistence', { error: err });
-  }
+
+  await db.insert(rebuttals).values(
+    foundRebuttals.map((rebuttal) => ({
+      rebuttalId: rebuttal.rebuttalId,
+      eventId,
+      challengeId: rebuttal.challengeId,
+      respondingAgentId: rebuttal.respondingAgentId,
+      position: rebuttal.position,
+      updatedConfidence: rebuttal.updatedConfidence,
+      rebuttalFactor: rebuttal.rebuttalFactor,
+    })),
+  );
 }
 
 async function emitRoundTwoRebuttals(eventId: string, foundRebuttals: Rebuttal[]): Promise<void> {
@@ -298,24 +159,20 @@ async function emitRoundTwoRebuttals(eventId: string, foundRebuttals: Rebuttal[]
 }
 
 async function persistDecision(decision: Decision): Promise<void> {
-  try {
-    await db.insert(decisions).values({
-      decisionId: decision.decisionId,
-      eventId: decision.eventId,
-      compositeScore: decision.compositeScore,
-      riskTier: decision.riskTier,
-      reasoning: decision.reasoning,
-      recommendedAction: decision.recommendedAction,
-      executionMeta: decision.executionMeta ?? {
-        round0: 'NATIVE',
-        round1: 'NATIVE',
-        round2: 'NATIVE',
-        round3: 'NATIVE',
-      },
-    });
-  } catch (err) {
-    logger.warn('persistDecision failed; continuing without persistence', { error: err });
-  }
+  await db.insert(decisions).values({
+    decisionId: decision.decisionId,
+    eventId: decision.eventId,
+    compositeScore: decision.compositeScore,
+    riskTier: decision.riskTier,
+    reasoning: decision.reasoning,
+    recommendedAction: decision.recommendedAction,
+    executionMeta: decision.executionMeta ?? {
+      round0: 'NATIVE',
+      round1: 'NATIVE',
+      round2: 'NATIVE',
+      round3: 'NATIVE',
+    },
+  });
 }
 
 function validateChallenge(challenge: Challenge | null): Challenge | null {
@@ -576,7 +433,9 @@ async function synthesizeDecision(
       },
     ]);
 
-    const parsed = JSON.parse(extractJsonObject(response)) as {
+    const parsed = JSON.parse(
+      response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1),
+    ) as {
       reasoning?: unknown;
       recommendedAction?: unknown;
     };
@@ -1001,18 +860,9 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
   const adkWorkflow = getAdkWorkflowSummary();
   await emitDebateEvent('debate:started', event.eventId, createDebateStartedPayload(event));
 
-  console.log(`\n[DEBATE] Starting pipeline for event ${event.eventId}`);
-  console.log(`[DEBATE] Failure Type: ${event.failureType}`);
-
   const initialAnalysis = await runInitialAnalysis(event);
-  console.log(`[ROUND 0] Initial Analysis: ${initialAnalysis.source} (${initialAnalysis.data.length} findings)`);
-
   const crossChallenges = await runCrossChallenges(initialAnalysis.data);
-  console.log(`[ROUND 1] Cross Challenges: ${crossChallenges.source} (${crossChallenges.data.length} challenges)`);
-
   const rebuttals = await runRebuttals(initialAnalysis.data, crossChallenges.data);
-  console.log(`[ROUND 2] Rebuttals: ${rebuttals.source} (${rebuttals.data.length} rebuttals)`);
-
   const executionMeta: ExecutionMeta = {
     round0: initialAnalysis.source,
     round1: crossChallenges.source,
@@ -1026,19 +876,6 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
     rebuttals.data,
     executionMeta,
   );
-
-  console.log(`[ROUND 3] Judge Synthesis: ${judgeSynthesis.source}`);
-  console.log(`[DECISION] Risk Tier: ${judgeSynthesis.data.riskTier}`);
-  console.log(`[DECISION] Composite Score: ${judgeSynthesis.data.compositeScore}`);
-
-  // Summary of execution paths
-  const executionSummary = [
-    `ROUND 0 (Initial Analysis): ${initialAnalysis.source === 'ADK' ? '✓ AI' : '✗ FALLBACK'}`,
-    `ROUND 1 (Challenges): ${crossChallenges.source === 'ADK' ? '✓ AI' : '✗ FALLBACK'}`,
-    `ROUND 2 (Rebuttals): ${rebuttals.source === 'ADK' ? '✓ AI' : '✗ FALLBACK'}`,
-    `ROUND 3 (Judge): ${judgeSynthesis.source === 'ADK' ? '✓ AI' : '✗ FALLBACK'}`,
-  ];
-  console.log(`\n[EXECUTION REPORT]\n${executionSummary.join('\n')}\n`);
 
   logger.info('Debate pipeline complete.', {
     eventId: event.eventId,
@@ -1062,19 +899,15 @@ export async function runDebate(event: PipelineEvent): Promise<void> {
       logger.error('Failed to write and push automated fix.', { error: e });
     }
 
-    try {
-      await db.insert(approvals).values({
-        approvalId: randomUUID(),
-        decisionId: judgeSynthesis.data.decisionId,
-        approver: 'Auto-Mitigator',
-        action: 'APPROVE',
-        justification: 'Automated mitigation for LOW risk pipeline failure.',
-        timestamp: new Date(),
-        mitigationDiff: diffContent,
-      });
-    } catch (err) {
-      logger.warn('persist approval failed; continuing without persistence', { error: err });
-    }
+    await db.insert(approvals).values({
+      approvalId: randomUUID(),
+      decisionId: judgeSynthesis.data.decisionId,
+      approver: 'Auto-Mitigator',
+      action: 'APPROVE',
+      justification: 'Automated mitigation for LOW risk pipeline failure.',
+      timestamp: new Date(),
+      mitigationDiff: diffContent,
+    });
 
     logger.info('Low risk decision automatically mitigated.', {
       eventId: event.eventId,
