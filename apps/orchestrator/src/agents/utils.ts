@@ -15,6 +15,8 @@ import {
   rebuttalSchema,
 } from '@agentic-cicd/shared-types';
 
+import { parseModelJson } from '../utils/model-json.js';
+
 const findingPayloadSchema = agentFindingSchema.pick({
   hypothesis: true,
   evidence: true,
@@ -57,23 +59,155 @@ const WORKSPACE_IGNORE_DIRS = new Set([
 const MAX_WORKSPACE_FILES = 600;
 const MAX_CONTEXT_ENTRIES = 8;
 
-function extractJsonObject(input: string): string {
-  const startIndex = input.indexOf('{');
-  const endIndex = input.lastIndexOf('}');
-
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-    throw new Error('No JSON object found in model response.');
-  }
-
-  return input.slice(startIndex, endIndex + 1);
-}
-
 function clampConfidence(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
   }
 
   return Math.max(0, Math.min(1, value));
+}
+
+function hasAnyPattern(input: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(input));
+}
+
+function normalizeWeakDomainFinding(
+  finding: AgentFinding,
+  hypothesis: string,
+  evidence: string[],
+  proposedRemediation: string,
+  confidence = 0.15,
+): AgentFinding {
+  return {
+    ...finding,
+    hypothesis,
+    evidence,
+    confidence,
+    proposedRemediation,
+  };
+}
+
+export function normalizeFindingForEvent(event: PipelineEvent, finding: AgentFinding): AgentFinding {
+  const failureType = event.failureType.toLowerCase();
+  const errorLog = event.errorLog.toLowerCase();
+
+  const hasLintSignal = hasAnyPattern(errorLog, [
+    /\blint\b/,
+    /\beslint\b/,
+    /\bprettier\b/,
+    /trailing comma/,
+    /trailing spaces?/,
+    /missing trailing comma/,
+    /react-hooks\/exhaustive-deps/,
+    /no-multi-spaces/,
+    /comma-dangle/,
+  ]);
+
+  const hasTestSignal = hasAnyPattern(errorLog, [
+    /\btest\b/,
+    /\bjest\b/,
+    /\bvitest\b/,
+    /\bassert/,
+    /\bexpected:/,
+    /\breceived:/,
+    /\bfixture\b/,
+    /\bmock\b/,
+    /\bcoverage\b/,
+    /^fail\s/m,
+  ]);
+
+  const hasDependencySignal = hasAnyPattern(errorLog, [
+    /\bpackage\b/,
+    /\blockfile\b/,
+    /\bpackage\.json\b/,
+    /\bpnpm\b/,
+    /\bnpm\b/,
+    /\byarn\b/,
+    /\bworkspace\b/,
+    /\bpeer\b/,
+    /\bversion\b/,
+    /\bpeer dependency\b/,
+    /\bmodule not found\b/,
+    /\bcan't resolve\b/,
+    /\bcannot resolve\b/,
+    /\bimport trace\b/,
+    /\breact-hooks\/exhaustive-deps\b/,
+    /\bmissing.*dependency\b/i,
+    /\bdependency.*missing\b/i,
+  ]);
+
+  const hasBuildSignal = hasAnyPattern(errorLog, [
+    /\bbuild\b/,
+    /\bcompile\b/,
+    /\bwebpack\b/,
+    /\bcompiler\b/,
+    /\bmodule not found\b/,
+    /\bcan't resolve\b/,
+    /\bcannot resolve\b/,
+    /\bimport trace\b/,
+  ]);
+
+  if (failureType === 'lint_error' || hasLintSignal) {
+    if (finding.agentId === 'test_analyzer' && !hasTestSignal) {
+      return normalizeWeakDomainFinding(
+        finding,
+        'The event does not show a test failure; the test-domain explanation is weak.',
+        [
+          'The log only shows lint and formatting warnings.',
+          'No assertion, fixture, mock, or test runner failure appears in the event.',
+        ],
+        'No concrete test change is justified from this log alone.',
+      );
+    }
+
+    if (finding.agentId === 'dependency_checker' && !hasDependencySignal) {
+      return normalizeWeakDomainFinding(
+        finding,
+        'The event does not show a dependency or package-resolution failure; the dependency case is weak.',
+        [
+          'The log focuses on lint and formatting violations rather than package resolution.',
+          'No package.json, lockfile, version, or peer dependency signal appears in the event.',
+        ],
+        'No dependency or lockfile change is justified from this log alone.',
+      );
+    }
+
+    if (finding.agentId === 'build_analyzer' && !hasBuildSignal) {
+      return normalizeWeakDomainFinding(
+        finding,
+        'The pipeline stopped on linting, but the log does not show a build-specific compilation failure.',
+        [
+          'The event contains lint and formatting warnings rather than compiler or bundler errors.',
+          'No import trace, module resolution, or toolchain failure appears in the log.',
+        ],
+        'Treat this as a lint-stage failure first; no build-specific patch is justified from this log alone.',
+        0.2,
+      );
+    }
+
+    if (finding.agentId === 'code_reviewer') {
+      return {
+        ...finding,
+        confidence: Math.min(Math.max(finding.confidence, 0.65), 0.8),
+      };
+    }
+  }
+
+  if (failureType === 'test_failure' || hasTestSignal) {
+    if (finding.agentId === 'dependency_checker' && !hasDependencySignal) {
+      return normalizeWeakDomainFinding(
+        finding,
+        'The log does not show a dependency-resolution issue; the dependency explanation is weak.',
+        [
+          'The event is dominated by test failure signals.',
+          'No package, lockfile, or version-conflict evidence appears in the log.',
+        ],
+        'No dependency change is justified from this test failure alone.',
+      );
+    }
+  }
+
+  return finding;
 }
 
 function normalizeCandidatePath(candidate: string): string | null {
@@ -411,7 +545,18 @@ export async function analyzeWithPrompt(
   prompt: string,
   event: PipelineEvent,
 ): Promise<AgentFinding> {
-  const codeContext = await loadCodeContext(event);
+  let codeContext: CodeContextEntry[] = [];
+  try {
+    // Timeout code context loading at 10 seconds to prevent blocking analysis
+    codeContext = await Promise.race([
+      loadCodeContext(event),
+      new Promise<CodeContextEntry[]>((resolve) => {
+        setTimeout(() => resolve([]), 10_000);
+      }),
+    ]);
+  } catch {
+    // If code context fails, proceed with empty context
+  }
   const userMessage = JSON.stringify(
     {
       eventId: event.eventId,
@@ -436,10 +581,21 @@ export async function analyzeWithPrompt(
       },
     ]);
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseModelJson<unknown>(response);
+    
+    // Coerce empty proposedRemediation BEFORE schema validation to prevent validation errors
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'proposedRemediation' in parsed &&
+      (typeof parsed.proposedRemediation !== 'string' || parsed.proposedRemediation.trim().length === 0)
+    ) {
+      (parsed as Record<string, unknown>).proposedRemediation = `Review the error log manually and determine the ${agentId.replaceAll('_', ' ')} fix needed based on the hypothesis and evidence.`;
+    }
+
     const finding = findingPayloadSchema.parse(parsed);
 
-    return {
+    return normalizeFindingForEvent(event, {
       findingId: randomUUID(),
       agentId,
       eventId: event.eventId,
@@ -447,7 +603,7 @@ export async function analyzeWithPrompt(
       evidence: finding.evidence,
       confidence: clampConfidence(finding.confidence),
       proposedRemediation: finding.proposedRemediation,
-    };
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown analysis failure';
     return fallbackFinding(agentId, event, reason);
@@ -455,7 +611,7 @@ export async function analyzeWithPrompt(
 }
 
 export function createTimeoutFinding(agentId: AgentId, event: PipelineEvent): AgentFinding {
-  return {
+  return normalizeFindingForEvent(event, {
     findingId: randomUUID(),
     agentId,
     eventId: event.eventId,
@@ -463,7 +619,7 @@ export function createTimeoutFinding(agentId: AgentId, event: PipelineEvent): Ag
     evidence: ['Round 0 analysis exceeded the 30 second timeout window.'],
     confidence: 0,
     proposedRemediation: 'Retry the debate run or inspect the raw error log manually.',
-  };
+  });
 }
 
 export async function challengeWithPrompt(
@@ -516,7 +672,7 @@ Rules:
       return null;
     }
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseModelJson<unknown>(response);
     const challenge = challengePayloadSchema.parse(parsed);
 
     if (challenge.targetAgentId === agentId || challenge.evidence.length === 0) {
@@ -617,7 +773,7 @@ Rules:
       },
     ]);
 
-    const parsed = JSON.parse(extractJsonObject(response)) as unknown;
+    const parsed = parseModelJson<unknown>(response);
     const rebuttal = rebuttalPayloadSchema.parse(parsed);
 
     return {

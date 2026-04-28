@@ -24,7 +24,13 @@ import {
 } from '@agentic-cicd/shared-types';
 
 import { loadEnv } from '../env.js';
-import { loadCodeContext, type CodeContextEntry } from '../agents/utils.js';
+import {
+  analyzeWithPrompt,
+  loadCodeContext,
+  normalizeFindingForEvent,
+  type CodeContextEntry,
+} from '../agents/utils.js';
+import { parseModelJson } from '../utils/model-json.js';
 
 import { buildAnalyzerPrompt } from '../prompts/build-analyzer.js';
 import { codeReviewerPrompt } from '../prompts/code-reviewer.js';
@@ -415,17 +421,6 @@ export interface AdkRebuttalResult {
   errorMessage?: string;
 }
 
-function extractJsonObject(input: string): string {
-  const startIndex = input.indexOf('{');
-  const endIndex = input.lastIndexOf('}');
-
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-    throw new Error('No JSON object found in ADK agent response.');
-  }
-
-  return input.slice(startIndex, endIndex + 1);
-}
-
 function clampConfidence(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
@@ -455,6 +450,21 @@ function createAdkFailureFinding(
   };
 }
 
+function getNativeFallbackPrompt(agentId: AgentId): string | null {
+  switch (agentId) {
+    case 'build_analyzer':
+      return buildAnalyzerPrompt;
+    case 'code_reviewer':
+      return codeReviewerPrompt;
+    case 'test_analyzer':
+      return testAnalyzerPrompt;
+    case 'dependency_checker':
+      return dependencyCheckerPrompt;
+    default:
+      return null;
+  }
+}
+
 function extractStateDeltaValue(event: unknown, key: string): string | null {
   if (
     !event ||
@@ -473,20 +483,42 @@ function extractStateDeltaValue(event: unknown, key: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function parseAdkFinding(
+async function parseAdkFinding(
   agentId: AgentId,
   event: PipelineEvent,
   rawPayload: string | null,
-): AgentFinding {
+): Promise<AgentFinding> {
   if (!rawPayload) {
+    const nativePrompt = getNativeFallbackPrompt(agentId);
+
+    if (nativePrompt) {
+      try {
+        return await analyzeWithPrompt(agentId, nativePrompt, event);
+      } catch {
+        // Fall through to the ADK-specific failure finding below.
+      }
+    }
+
     return createAdkFailureFinding(agentId, event, 'No ADK finding payload was returned.');
   }
 
   try {
-    const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+    const parsed = parseModelJson<unknown>(rawPayload, 'ADK agent response');
+
+    // Some model outputs contain an empty remediation field; coerce it before schema validation.
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'proposedRemediation' in parsed &&
+      (typeof parsed.proposedRemediation !== 'string' || parsed.proposedRemediation.trim().length === 0)
+    ) {
+      (parsed as Record<string, unknown>).proposedRemediation =
+        'Review the error log manually and apply a targeted fix for this domain.';
+    }
+
     const finding = findingPayloadSchema.parse(parsed);
 
-    return {
+    return normalizeFindingForEvent(event, {
       findingId: randomUUID(),
       agentId,
       eventId: event.eventId,
@@ -494,9 +526,26 @@ function parseAdkFinding(
       evidence: finding.evidence,
       confidence: clampConfidence(finding.confidence),
       proposedRemediation: finding.proposedRemediation,
-    };
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown ADK finding parse error.';
+
+    const nativePrompt = getNativeFallbackPrompt(agentId);
+    if (nativePrompt) {
+      try {
+        return await analyzeWithPrompt(agentId, nativePrompt, event);
+      } catch (nativeError) {
+        const nativeReason =
+          nativeError instanceof Error ? nativeError.message : 'Unknown native fallback error.';
+
+        return createAdkFailureFinding(
+          agentId,
+          event,
+          `${reason}; native fallback failed: ${nativeReason}`,
+        );
+      }
+    }
+
     return createAdkFailureFinding(agentId, event, reason);
   }
 }
@@ -660,7 +709,13 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
   const events: unknown[] = [];
 
   try {
-    const codeContext = await loadCodeContext(event);
+    // Load code context with a timeout to prevent hanging
+    const codeContext = await Promise.race([
+      loadCodeContext(event),
+      new Promise<CodeContextEntry[]>((resolve) => {
+        setTimeout(() => resolve([]), 10_000); // 10 second timeout, returns empty context
+      }),
+    ]);
     const execution = (async () => {
       for await (const runnerEvent of roundZeroWorkflowRunner.runEphemeral({
         userId: `event:${event.eventId}`,
@@ -675,8 +730,9 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
         events.push(runnerEvent);
       }
 
-      const findings = roundZeroAgentIds.map((agentId) =>
-        parseAdkFinding(
+      const findings = await Promise.all(
+        roundZeroAgentIds.map((agentId) =>
+          parseAdkFinding(
           agentId,
           event,
           extractStateDeltaValue(
@@ -688,6 +744,7 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
               return item.author === agentId;
             }),
             `${agentId}_finding`,
+          ),
           ),
         ),
       );
@@ -735,7 +792,13 @@ export async function executeAdkJudge(input: {
   const events: unknown[] = [];
 
   try {
-    const codeContext = await loadCodeContext(input.event);
+    // Load code context with a timeout to prevent hanging
+    const codeContext = await Promise.race([
+      loadCodeContext(input.event),
+      new Promise<CodeContextEntry[]>((resolve) => {
+        setTimeout(() => resolve([]), 10_000); // 10 second timeout, returns empty context
+      }),
+    ]);
     const execution = (async () => {
       for await (const runnerEvent of judgeWorkflowRunner.runEphemeral({
         userId: `event:${input.event.eventId}`,
@@ -758,7 +821,7 @@ export async function executeAdkJudge(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseModelJson<unknown>(rawPayload, 'ADK judge response');
       const judgeDecision = judgePayloadSchema.parse(parsed);
 
       return {
@@ -829,7 +892,7 @@ export async function executeAdkChallenge(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseModelJson<unknown>(rawPayload, 'ADK challenge response');
       const challenge = challengePayloadSchema.parse(parsed);
 
       return {
@@ -896,7 +959,7 @@ export async function executeAdkRebuttal(input: {
         };
       }
 
-      const parsed = JSON.parse(extractJsonObject(rawPayload)) as unknown;
+      const parsed = parseModelJson<unknown>(rawPayload, 'ADK rebuttal response');
       const rebuttal = rebuttalPayloadSchema.parse(parsed);
 
       return {

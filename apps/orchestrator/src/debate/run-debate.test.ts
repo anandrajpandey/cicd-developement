@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { AgentFinding, Challenge, Rebuttal } from '@agentic-cicd/shared-types';
 
-import { calculateCompositeScore, classifyRiskTier } from './run-debate.js';
+import { calculateCompositeScore, classifyMitigationTier, classifyRiskTier } from './run-debate.js';
 
 const baseFindings: AgentFinding[] = [
   {
@@ -44,7 +44,7 @@ const baseFindings: AgentFinding[] = [
   },
 ];
 
-test('calculateCompositeScore uses maximum effective confidence', () => {
+test('calculateCompositeScore uses weighted effective confidence', () => {
   const challenges: Challenge[] = [
     {
       challengeId: 'c1',
@@ -68,7 +68,7 @@ test('calculateCompositeScore uses maximum effective confidence', () => {
   ];
 
   const score = calculateCompositeScore(baseFindings, challenges, rebuttals);
-  assert.equal(Number(score.toFixed(4)), 0.9);
+  assert.equal(Number(score.toFixed(4)), 0.6775);
 });
 
 test('classifyRiskTier respects low, medium, and high thresholds', () => {
@@ -76,4 +76,21 @@ test('classifyRiskTier respects low, medium, and high thresholds', () => {
   assert.equal(classifyRiskTier(0.35), 'MEDIUM');
   assert.equal(classifyRiskTier(0.7), 'MEDIUM');
   assert.equal(classifyRiskTier(0.71), 'HIGH');
+});
+
+test('classifyMitigationTier keeps lint-only mitigation LOW even with strong confidence', () => {
+  const event = {
+    eventId: '11111111-1111-4111-8111-111111111111',
+    repository: 'agentic-testers/dummy-repo',
+    commitSha: '5a2b1c9d',
+    branch: 'feature/test-risks',
+    failureType: 'lint_error',
+    errorLog: "Warning: React hook missing dependency: 'router'. (react-hooks/exhaustive-deps)",
+    timestamp: new Date('2026-04-28T00:00:00.000Z'),
+  };
+
+  const score = calculateCompositeScore(baseFindings, [], []);
+  const riskTier = classifyMitigationTier(event, baseFindings, score);
+
+  assert.equal(riskTier, 'LOW');
 });

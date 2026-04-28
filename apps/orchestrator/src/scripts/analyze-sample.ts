@@ -34,8 +34,8 @@ async function main(): Promise<void> {
   const adkWorkflow = getAdkWorkflowSummary();
   const adkExecution = await executeAdkWorkflow(sampleEvent);
   const initialAnalysis = await runInitialAnalysis(sampleEvent, { persist: false });
-  const challengeResults = await runCrossChallenges(sampleEvent, initialAnalysis.data, { persist: false });
-  const rebuttalResults = await runRebuttals(sampleEvent, initialAnalysis.data, challengeResults.data, {
+  const challengeResults = await runCrossChallenges(initialAnalysis.data, { persist: false });
+  const rebuttalResults = await runRebuttals(initialAnalysis.data, challengeResults.data, {
     persist: false,
   });
   const decision = await runJudgeSynthesis(

@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { approvals, db } from '@agentic-cicd/db';
 import { approvalSchema } from '@agentic-cicd/shared-types';
 
+import { getEventRuntimeStatus } from '../debate/runtime-state.js';
+
 const approvalRequestSchema = approvalSchema.extend({
   decisionId: z.string().uuid(),
 });
@@ -15,7 +17,162 @@ const decisionParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+const workflowAgentOrder = [
+  'build_analyzer',
+  'code_reviewer',
+  'test_analyzer',
+  'dependency_checker',
+  'judge',
+] as const;
+
+type WorkflowAgentId = (typeof workflowAgentOrder)[number];
+
+function inferWorkflowStatus(args: {
+  runtimeStatus: ReturnType<typeof getEventRuntimeStatus>;
+  findingCount: number;
+  challengeCount: number;
+  rebuttalCount: number;
+  hasDecision: boolean;
+}) {
+  if (args.runtimeStatus === 'CANCELLED') {
+    return 'CANCELLED' as const;
+  }
+
+  if (args.hasDecision || args.runtimeStatus === 'COMPLETED') {
+    return 'JUDGED' as const;
+  }
+
+  if (args.rebuttalCount > 0) {
+    return 'REBUTTING' as const;
+  }
+
+  if (args.challengeCount > 0) {
+    return 'CHALLENGING' as const;
+  }
+
+  if (args.findingCount > 0 || args.runtimeStatus === 'RUNNING') {
+    return 'ANALYZING' as const;
+  }
+
+  return 'STARTED' as const;
+}
+
+function buildAgentSnapshots(args: {
+  findings: Array<{
+    agentId: string;
+    confidence: number;
+    timedOut: boolean;
+  }>;
+  rebuttals: Array<{
+    respondingAgentId: string;
+    updatedConfidence: number;
+    position: 'DEFEND' | 'CONCEDE' | 'COMPROMISE';
+  }>;
+  decision: {
+    compositeScore: number;
+  } | null;
+}) {
+  return workflowAgentOrder.map((agentId) => {
+    if (agentId === 'judge') {
+      return {
+        agentId,
+        confidence: args.decision?.compositeScore ?? null,
+        previousConfidence: null,
+        status: args.decision ? 'judging' : 'idle',
+        rebuttalPosition: null,
+      };
+    }
+
+    const finding = args.findings.find((row) => row.agentId === agentId);
+    const rebuttal = args.rebuttals.find((row) => row.respondingAgentId === agentId);
+
+    let status: 'idle' | 'analyzing' | 'finding_ready' | 'challenging' | 'defending' | 'conceding' | 'judging' =
+      'idle';
+
+    if (rebuttal) {
+      status = rebuttal.position === 'CONCEDE' ? 'conceding' : 'defending';
+    } else if (finding) {
+      status = finding.timedOut ? 'idle' : 'finding_ready';
+    }
+
+    return {
+      agentId,
+      confidence: rebuttal?.updatedConfidence ?? finding?.confidence ?? null,
+      previousConfidence: finding?.confidence ?? null,
+      status,
+      rebuttalPosition: rebuttal?.position === 'COMPROMISE' ? null : (rebuttal?.position ?? null),
+    };
+  });
+}
+
 export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/api/workflows', async () => {
+    const rows = await db.query.pipelineEvents.findMany({
+      with: {
+        findings: true,
+        challenges: true,
+        rebuttals: true,
+        decisions: true,
+      },
+      orderBy: (fields, operators) => [operators.desc(fields.createdAt)],
+    });
+
+    return rows.map((row) => {
+      const decision = row.decisions[0] ?? null;
+      const runtimeStatus = getEventRuntimeStatus(row.eventId);
+      const findingRows = [...row.findings].sort(
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+      );
+      const challengeRows = [...row.challenges].sort(
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+      );
+      const rebuttalRows = [...row.rebuttals].sort(
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+      );
+
+      return {
+        eventId: row.eventId,
+        repository: row.repository,
+        branch: row.branch,
+        commitSha: row.commitSha,
+        failureType: row.failureType,
+        status: inferWorkflowStatus({
+          runtimeStatus,
+          findingCount: findingRows.length,
+          challengeCount: challengeRows.length,
+          rebuttalCount: rebuttalRows.length,
+          hasDecision: Boolean(decision),
+        }),
+        runtimeStatus,
+        createdAt: row.createdAt,
+        timestamps: {
+          startedAt: row.createdAt,
+          round0At: findingRows[0]?.createdAt ?? null,
+          round1At: challengeRows[0]?.createdAt ?? null,
+          round2At: rebuttalRows[0]?.createdAt ?? null,
+          round3At: decision?.createdAt ?? null,
+        },
+        counts: {
+          findings: findingRows.length,
+          challenges: challengeRows.length,
+          rebuttals: rebuttalRows.length,
+        },
+        agents: buildAgentSnapshots({
+          findings: findingRows,
+          rebuttals: rebuttalRows,
+          decision,
+        }),
+        decision: decision
+          ? {
+              decisionId: decision.decisionId,
+              riskTier: decision.riskTier,
+              compositeScore: decision.compositeScore,
+            }
+          : null,
+      };
+    });
+  });
+
   fastify.get('/api/decisions', async () => {
     const rows = await db.query.decisions.findMany({
       with: {

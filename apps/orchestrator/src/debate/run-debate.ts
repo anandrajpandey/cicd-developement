@@ -42,7 +42,7 @@ const analysisAgents = [
   dependencyCheckerAgent,
 ] as const;
 
-const ROUND_0_TIMEOUT_MS = 30_000;
+const ROUND_0_TIMEOUT_MS = 120_000;
 const ROUND_2_TIMEOUT_MS = 20_000;
 
 const domainWeights: Record<AgentId, number> = {
@@ -293,6 +293,33 @@ export function classifyRiskTier(compositeScore: number): RiskTier {
   return 'HIGH';
 }
 
+export function classifyMitigationTier(
+  event: PipelineEvent,
+  findings: AgentFinding[],
+  compositeScore: number,
+): RiskTier {
+  const baseline = classifyRiskTier(compositeScore);
+
+  if (event.failureType !== 'lint_error') {
+    return baseline;
+  }
+
+  const errorLog = event.errorLog.toLowerCase();
+  const hasHardFailureSignal =
+    errorLog.includes('module not found') ||
+    errorLog.includes("can't resolve") ||
+    errorLog.includes('cannot resolve') ||
+    errorLog.includes('import trace') ||
+    errorLog.includes('build failed') ||
+    errorLog.includes('compilation failed');
+
+  if (hasHardFailureSignal) {
+    return baseline === 'HIGH' ? 'MEDIUM' : baseline;
+  }
+
+  return 'LOW';
+}
+
 function getFinalizedFindings(
   findings: AgentFinding[],
   foundChallenges: Challenge[],
@@ -336,15 +363,21 @@ export function calculateCompositeScore(
 ): number {
   const finalizedFindings = getFinalizedFindings(findings, foundChallenges, foundRebuttals);
 
-  let maxScore = 0;
+  let weightedScoreTotal = 0;
+  let totalWeight = 0;
   for (const finding of finalizedFindings) {
     const score = finding.effectiveConfidence * finding.rebuttalFactor;
-    if (score > maxScore) {
-      maxScore = score;
-    }
+    const weight = domainWeights[finding.agentId] ?? 0;
+
+    weightedScoreTotal += score * weight;
+    totalWeight += weight;
   }
 
-  return maxScore;
+  if (totalWeight <= 0) {
+    return 0;
+  }
+
+  return weightedScoreTotal / totalWeight;
 }
 
 async function synthesizeDecision(
@@ -519,31 +552,40 @@ export async function runCrossChallenges(
   const eventId = findings[0]?.eventId;
   const adkChallenges = await Promise.all(
     analysisAgents.map(async (agent) => {
-      const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
-      const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
+      try {
+        const myFinding = findings.find((finding) => finding.agentId === agent.agentId);
+        const otherFindings = findings.filter((finding) => finding.agentId !== agent.agentId);
 
-      if (!eventId || !myFinding) {
+        if (!eventId || !myFinding) {
+          return { status: 'failed' as const, challenge: null };
+        }
+
+        const result = await executeAdkChallenge({
+          eventId,
+          agentId: agent.agentId,
+          myFinding,
+          otherFindings,
+        });
+
+        if (result.status === 'completed') {
+          return { status: 'completed' as const, challenge: result.challenge };
+        }
+
+        logger.warn('ADK challenge was unavailable; falling back to native challenge.', {
+          eventId,
+          agentId: agent.agentId,
+          errorMessage: result.errorMessage,
+        });
+
+        return { status: 'failed' as const, challenge: null };
+      } catch (error) {
+        logger.error('Unhandled error in ADK challenge execution.', {
+          eventId,
+          agentId: agent.agentId,
+          error,
+        });
         return { status: 'failed' as const, challenge: null };
       }
-
-      const result = await executeAdkChallenge({
-        eventId,
-        agentId: agent.agentId,
-        myFinding,
-        otherFindings,
-      });
-
-      if (result.status === 'completed') {
-        return { status: 'completed' as const, challenge: result.challenge };
-      }
-
-      logger.warn('ADK challenge was unavailable; falling back to native challenge.', {
-        eventId,
-        agentId: agent.agentId,
-        errorMessage: result.errorMessage,
-      });
-
-      return { status: 'failed' as const, challenge: null };
     }),
   );
   const adkChallengesCompleted = adkChallenges.every((result) => result.status === 'completed');
@@ -633,31 +675,40 @@ export async function runRebuttals(
   const eventId = findings[0]?.eventId;
   const adkRebuttalResults = await Promise.all(
     foundChallenges.map(async (challenge) => {
-      const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+      try {
+        const myFinding = findings.find((finding) => finding.agentId === challenge.targetAgentId);
 
-      if (!eventId || !myFinding) {
+        if (!eventId || !myFinding) {
+          return { status: 'failed' as const, rebuttal: null };
+        }
+
+        const result = await executeAdkRebuttal({
+          eventId,
+          agentId: challenge.targetAgentId,
+          myFinding,
+          challenge,
+        });
+
+        if (result.status === 'completed') {
+          return { status: 'completed' as const, rebuttal: result.rebuttal ?? null };
+        }
+
+        logger.warn('ADK rebuttal was unavailable; falling back to native rebuttal.', {
+          eventId,
+          agentId: challenge.targetAgentId,
+          challengeId: challenge.challengeId,
+          errorMessage: result.errorMessage,
+        });
+
+        return { status: 'failed' as const, rebuttal: null };
+      } catch (error) {
+        logger.error('Unhandled error in ADK rebuttal execution.', {
+          eventId,
+          agentId: challenge.targetAgentId,
+          error,
+        });
         return { status: 'failed' as const, rebuttal: null };
       }
-
-      const result = await executeAdkRebuttal({
-        eventId,
-        agentId: challenge.targetAgentId,
-        myFinding,
-        challenge,
-      });
-
-      if (result.status === 'completed') {
-        return { status: 'completed' as const, rebuttal: result.rebuttal ?? null };
-      }
-
-      logger.warn('ADK rebuttal was unavailable; falling back to native rebuttal.', {
-        eventId,
-        agentId: challenge.targetAgentId,
-        challengeId: challenge.challengeId,
-        errorMessage: result.errorMessage,
-      });
-
-      return { status: 'failed' as const, rebuttal: null };
     }),
   );
   const adkRebuttalsCompleted = adkRebuttalResults.every((result) => result.status === 'completed');
@@ -759,7 +810,7 @@ export async function runJudgeSynthesis(
   options: DebateRoundOptions = {},
 ): Promise<RoundResult<Decision>> {
   const compositeScore = calculateCompositeScore(findings, foundChallenges, foundRebuttals);
-  const riskTier = classifyRiskTier(compositeScore);
+  const riskTier = classifyMitigationTier(event, findings, compositeScore);
   const synthesis = await synthesizeDecision(
     event,
     findings,

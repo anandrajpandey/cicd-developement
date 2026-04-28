@@ -7,7 +7,7 @@ export interface ChatMessage {
   content: string;
 }
 
-const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
+const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 const DEFAULT_OLLAMA_MODEL = 'mistral:7b';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 3;
