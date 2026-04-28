@@ -168,23 +168,14 @@ Test Summary: 1 failed, 23 passed (156ms total)`,
     'data-platform/warehouse',
     '9999ffff',
     'feat/schema-migration-v3',
-    `CRITICAL BUILD FAILURE: Database Migration Failed.
+    `CRITICAL BUILD FAILURE: Module resolution failed during schema migration.
 
-Error in migration 20260427_drop_legacy_tables.sql:
-  CONSTRAINT VIOLATION: Cannot drop table 'invoices_v1' - 8 active foreign key constraints depend on it.
-  Dependent objects: batch_jobs.reference_invoice_id, reports.invoice_source, webhooks.payload
+Error in src/billing/processor.ts:142
+  Cannot find module '@app/db/client'
+  import trace:
+    src/billing/processor.ts
 
-Error in test: src/tests/integration/payments.test.ts
-  X should process monthly billing cycles (1245ms)
-    QueryFailedError: relation "invoices_v1" does not exist
-      at ConnectionPool.query (src/db/pool.ts:89:15)
-      at Billing.processInvoices (src/billing/processor.ts:142:8)
-  
-  CRITICAL: This PR drops critical table 'invoices_v1' that 5 microservices depend on.
-  3 background workers will crash on deployment. Multiple data integrity issues detected.
-  
-Build Status: FAILED (0 tests passed, 1 critical failure).
-Deployment blocked. Manual database intervention required.`,
+Build Status: FAILED. Shared billing services cannot start until the missing module is restored.`,
   );
   results.push(hardResult);
 

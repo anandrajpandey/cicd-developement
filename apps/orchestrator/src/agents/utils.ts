@@ -87,6 +87,10 @@ function normalizeWeakDomainFinding(
   };
 }
 
+export function shouldBypassCodeContext(agentId: AgentId, event: PipelineEvent): boolean {
+  return event.failureType.toLowerCase() === 'simulation_hard';
+}
+
 export function normalizeFindingForEvent(event: PipelineEvent, finding: AgentFinding): AgentFinding {
   const failureType = event.failureType.toLowerCase();
   const errorLog = event.errorLog.toLowerCase();
@@ -546,16 +550,18 @@ export async function analyzeWithPrompt(
   event: PipelineEvent,
 ): Promise<AgentFinding> {
   let codeContext: CodeContextEntry[] = [];
-  try {
-    // Timeout code context loading at 10 seconds to prevent blocking analysis
-    codeContext = await Promise.race([
-      loadCodeContext(event),
-      new Promise<CodeContextEntry[]>((resolve) => {
-        setTimeout(() => resolve([]), 10_000);
-      }),
-    ]);
-  } catch {
-    // If code context fails, proceed with empty context
+  if (!shouldBypassCodeContext(agentId, event)) {
+    try {
+      // Timeout code context loading at 10 seconds to prevent blocking analysis
+      codeContext = await Promise.race([
+        loadCodeContext(event),
+        new Promise<CodeContextEntry[]>((resolve) => {
+          setTimeout(() => resolve([]), 10_000);
+        }),
+      ]);
+    } catch {
+      // If code context fails, proceed with empty context
+    }
   }
   const userMessage = JSON.stringify(
     {

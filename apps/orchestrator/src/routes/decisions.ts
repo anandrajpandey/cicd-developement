@@ -86,8 +86,14 @@ function buildAgentSnapshots(args: {
     const finding = args.findings.find((row) => row.agentId === agentId);
     const rebuttal = args.rebuttals.find((row) => row.respondingAgentId === agentId);
 
-    let status: 'idle' | 'analyzing' | 'finding_ready' | 'challenging' | 'defending' | 'conceding' | 'judging' =
-      'idle';
+    let status:
+      | 'idle'
+      | 'analyzing'
+      | 'finding_ready'
+      | 'challenging'
+      | 'defending'
+      | 'conceding'
+      | 'judging' = 'idle';
 
     if (rebuttal) {
       status = rebuttal.position === 'CONCEDE' ? 'conceding' : 'defending';

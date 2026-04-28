@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { AgentFinding, PipelineEvent } from '@agentic-cicd/shared-types';
 
-import { normalizeFindingForEvent } from './utils.js';
+import { normalizeFindingForEvent, shouldBypassCodeContext } from './utils.js';
 
 const lintEvent: PipelineEvent = {
   eventId: '11111111-1111-4111-8111-111111111111',
@@ -50,4 +50,11 @@ test('normalizeFindingForEvent preserves a strong code reviewer on lint events',
   const normalized = normalizeFindingForEvent(lintEvent, makeFinding('code_reviewer', 0.8));
 
   assert.equal(normalized.confidence, 0.8);
+});
+
+test('shouldBypassCodeContext skips code context for hard simulation code reviewer runs', () => {
+  assert.equal(shouldBypassCodeContext('code_reviewer', { ...lintEvent, failureType: 'simulation_hard' }), true);
+  assert.equal(shouldBypassCodeContext('build_analyzer', { ...lintEvent, failureType: 'simulation_hard' }), true);
+  assert.equal(shouldBypassCodeContext('dependency_checker', { ...lintEvent, failureType: 'simulation_hard' }), true);
+  assert.equal(shouldBypassCodeContext('code_reviewer', { ...lintEvent, failureType: 'lint_error' }), false);
 });
