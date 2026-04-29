@@ -63,3 +63,25 @@ Most existing CI/CD systems stop at failure detection, test reporting, or a sing
 - Set `SLACK_APPROVALS_WEBHOOK_URL` in the orchestrator environment to post approval decisions to Slack. `ADMIN_PANEL_URL` is used for the review link in the Slack message when available.
 - The admin panel expects `NEXT_PUBLIC_ORCHESTRATOR_URL` to point at the orchestrator API.
 - The dashboard also relies on the live Socket.IO stream, so both services should be running together for the realtime experience.
+
+## Images
+
+### Dashboard
+
+![Dashboard](./docs/images/1.jpg)
+
+### Debate workflow
+
+![Debate workflow](./docs/images/2.jpg)
+
+### Mitigations page
+
+![Mitigations page](./docs/images/3.jpg)
+
+### Simulation Hub / Workflow Timeline
+
+![Simulation Hub / Workflow Timeline](./docs/images/4.jpg)
+
+### Slack approval
+
+![Slack approval](./docs/images/5.jpg)

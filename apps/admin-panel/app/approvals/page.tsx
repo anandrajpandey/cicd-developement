@@ -71,7 +71,9 @@ export default async function ApprovalQueuePage() {
                   </div>
 
                   <div className="rounded-3xl border border-white/8 bg-black/15 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">Reasoning</p>
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">
+                      Reasoning
+                    </p>
                     <p className="mt-2 text-sm leading-6 text-mist/80">{item.reasoning}</p>
                   </div>
 
@@ -83,9 +85,12 @@ export default async function ApprovalQueuePage() {
                       <p className="mt-2 text-sm leading-6 text-white">{item.recommendedAction}</p>
                     </div>
                     <div className="rounded-3xl border border-white/8 bg-black/10 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">Review link</p>
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">
+                        Review link
+                      </p>
                       <p className="mt-2 text-sm leading-6 text-mist/75">
-                        Open the event detail to approve or reject the decision and trigger the Slack notification.
+                        Open the event detail to approve or reject the decision and trigger the
+                        Slack notification.
                       </p>
                     </div>
                   </div>
@@ -95,7 +100,10 @@ export default async function ApprovalQueuePage() {
                   </div>
 
                   <div className="pt-2">
-                    <ApprovalQueueActions decisionId={item.decisionId} approvedLabel={item.repository} />
+                    <ApprovalQueueActions
+                      decisionId={item.decisionId}
+                      approvedLabel={item.repository}
+                    />
                   </div>
                 </div>
 
