@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   fetchGitHubDiff,
   getDecision,
+  getOrchestratorConfig,
   listApprovalQueue,
   listAutoMitigations,
   listDecisions,
@@ -77,6 +78,9 @@ export const appRouter = t.router({
       fallbackTouched,
       latestAdkCoverage,
     };
+  }),
+  orchestratorConfig: t.procedure.query(async () => {
+    return getOrchestratorConfig();
   }),
   decisionByEventId: t.procedure.input(z.string().uuid()).query(async ({ input }) => {
     return getDecision(input);

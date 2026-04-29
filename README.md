@@ -60,5 +60,6 @@ Most existing CI/CD systems stop at failure detection, test reporting, or a sing
 ## Notes
 
 - The orchestrator expects `DATABASE_URL`, `REDIS_URL`, and LLM-related environment variables such as `GROQ_API_KEY` and `OLLAMA_BASE_URL` when you want the full debate pipeline to run.
+- Set `SLACK_APPROVALS_WEBHOOK_URL` in the orchestrator environment to post approval decisions to Slack. `ADMIN_PANEL_URL` is used for the review link in the Slack message when available.
 - The admin panel expects `NEXT_PUBLIC_ORCHESTRATOR_URL` to point at the orchestrator API.
 - The dashboard also relies on the live Socket.IO stream, so both services should be running together for the realtime experience.

@@ -131,7 +131,12 @@ export function Shell({ children }: PropsWithChildren) {
             </div>
 
             <div className="px-4 pb-5">
-              <div className={cn('dashboard-signout-row', !expanded && 'justify-center')}>
+              <div
+                className={cn(
+                  'dashboard-signout-row',
+                  expanded ? 'w-full' : 'justify-center',
+                )}
+              >
                 {expanded ? (
                   <SignOutButton />
                 ) : (

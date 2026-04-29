@@ -23,6 +23,10 @@ export interface DecisionListItem {
   branch: string;
 }
 
+export interface OrchestratorConfig {
+  slackApprovalsEnabled: boolean;
+}
+
 export type WorkflowStatus =
   | 'STARTED'
   | 'ANALYZING'
@@ -230,6 +234,16 @@ export async function listAutoMitigations(): Promise<AutoMitigationItem[]> {
     return await requestJson<AutoMitigationItem[]>('/api/mitigations');
   } catch {
     return [];
+  }
+}
+
+export async function getOrchestratorConfig(): Promise<OrchestratorConfig> {
+  try {
+    return await requestJson<OrchestratorConfig>('/api/config');
+  } catch {
+    return {
+      slackApprovalsEnabled: false,
+    };
   }
 }
 

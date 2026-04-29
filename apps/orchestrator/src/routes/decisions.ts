@@ -8,6 +8,7 @@ import { approvals, db } from '@agentic-cicd/db';
 import { approvalSchema } from '@agentic-cicd/shared-types';
 
 import { getEventRuntimeStatus } from '../debate/runtime-state.js';
+import { sendApprovalSlackNotification } from '../utils/slack.js';
 
 const approvalRequestSchema = approvalSchema.extend({
   decisionId: z.string().uuid(),
@@ -112,6 +113,12 @@ function buildAgentSnapshots(args: {
 }
 
 export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/api/config', async () => {
+    return {
+      slackApprovalsEnabled: Boolean(process.env.SLACK_APPROVALS_WEBHOOK_URL),
+    };
+  });
+
   fastify.get('/api/workflows', async () => {
     const rows = await db.query.pipelineEvents.findMany({
       with: {
@@ -319,6 +326,9 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
 
     const decisionRow = await db.query.decisions.findFirst({
       where: (fields, operators) => operators.eq(fields.decisionId, payload.decisionId),
+      with: {
+        event: true,
+      },
     });
 
     if (!decisionRow) {
@@ -335,6 +345,30 @@ export const decisionRoutes: FastifyPluginAsync = async (fastify) => {
       justification: payload.justification,
       timestamp: payload.timestamp,
     });
+
+    if (decisionRow?.event) {
+      try {
+        await sendApprovalSlackNotification({
+          decisionId: decisionRow.decisionId,
+          eventId: decisionRow.eventId,
+          repository: decisionRow.event.repository,
+          branch: decisionRow.event.branch,
+          failureType: decisionRow.event.failureType,
+          riskTier: decisionRow.riskTier,
+          compositeScore: decisionRow.compositeScore,
+          reasoning: decisionRow.reasoning,
+          recommendedAction: decisionRow.recommendedAction,
+          approver: payload.approver,
+          action: payload.action,
+          justification: payload.justification,
+        });
+      } catch (error) {
+        fastify.log.warn(
+          { err: error, decisionId: payload.decisionId },
+          'Failed to send Slack approval notification',
+        );
+      }
+    }
 
     return reply.code(201).send({
       status: 'recorded',
