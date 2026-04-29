@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { ApprovalQueueActions } from '../../components/approval-queue-actions';
 import { ExecutionPathStrip } from '../../components/execution-path-strip';
 import { RiskBadge } from '../../components/risk-badge';
 import { SlaBadge } from '../../components/sla-badge';
@@ -7,70 +8,39 @@ import { getTrpcCaller } from '../../lib/trpc/server';
 
 export default async function ApprovalQueuePage() {
   const caller = await getTrpcCaller();
-  const [config, items] = await Promise.all([
-    caller.orchestratorConfig(),
-    caller.approvals(),
-  ]);
+  const items = await caller.approvals();
   const pendingCount = items.length;
   const mediumCount = items.filter((item) => item.riskTier === 'MEDIUM').length;
   const highCount = items.filter((item) => item.riskTier === 'HIGH').length;
-  const slackWebhookEnabled = config.slackApprovalsEnabled;
-  const newestItem = items[0] ?? null;
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-        <div className="panel animated-panel p-6">
-          <p className="eyebrow">Queue</p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">Pending approvals</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-mist/70">
-            Medium and high risk outcomes that still need a human decision before remediation.
-            Slack notifications keep reviewers in the loop when approvals are recorded.
-          </p>
-
-          <div className="mt-6 flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-mist/55">
-            <span className="rounded-full border border-white/10 bg-black/15 px-3 py-2 text-white/80">
-              {pendingCount} pending
-            </span>
-            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-amber-100">
-              {mediumCount} medium
-            </span>
-            <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-rose-100">
-              {highCount} high
-            </span>
+      <section className="panel animated-panel p-6">
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <p className="eyebrow">Queue</p>
+            <h1 className="mt-2 text-3xl font-semibold text-white">Pending approvals</h1>
+          </div>
+          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-emerald-100">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(74,222,128,0.65)]" />
+            Slack connected
           </div>
         </div>
 
-        <div className="panel animated-panel border border-white/10 bg-[rgba(7,15,26,0.68)] p-6">
-          <p className="eyebrow">Slack relay</p>
-          <div className="mt-3 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-white">
-                {slackWebhookEnabled ? 'Notifications enabled' : 'Notifications disabled'}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-mist/65">
-                {slackWebhookEnabled
-                  ? 'Approval decisions are posted to Slack with repository, risk tier, score, and reviewer context.'
-                  : 'Set SLACK_APPROVALS_WEBHOOK_URL in the orchestrator environment to post approval decisions to Slack.'}
-              </p>
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-black/20 px-4 py-3 text-right">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">Status</p>
-              <p className="mt-1 text-sm font-semibold text-white">
-                {slackWebhookEnabled ? 'Connected' : 'Not configured'}
-              </p>
-            </div>
-          </div>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-mist/70">
+          Medium and high risk outcomes that still need a human decision before remediation.
+        </p>
 
-          {newestItem ? (
-            <div className="mt-6 rounded-3xl border border-white/8 bg-black/15 p-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-mist/50">Newest item</p>
-              <p className="mt-2 text-sm font-medium text-white">{newestItem.repository}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-mist/55">
-                {newestItem.branch} / {(newestItem.compositeScore * 100).toFixed(0)} score
-              </p>
-            </div>
-          ) : null}
+        <div className="mt-6 flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-mist/55">
+          <span className="rounded-full border border-white/10 bg-black/15 px-3 py-2 text-white/80">
+            {pendingCount} pending
+          </span>
+          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-amber-100">
+            {mediumCount} medium
+          </span>
+          <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-rose-100">
+            {highCount} high
+          </span>
         </div>
       </section>
 
@@ -82,9 +52,8 @@ export default async function ApprovalQueuePage() {
             </div>
           ) : (
             items.map((item) => (
-              <Link
+              <div
                 key={item.decisionId}
-                href={`/events/${item.eventId}`}
                 className="group grid gap-5 rounded-[28px] border border-line bg-black/15 p-5 transition hover:border-mint/35 hover:bg-black/25 xl:grid-cols-[1fr_auto] xl:items-start"
               >
                 <div className="min-w-0 space-y-3">
@@ -124,6 +93,10 @@ export default async function ApprovalQueuePage() {
                   <div className="pt-1">
                     <ExecutionPathStrip meta={item.executionMeta} compact />
                   </div>
+
+                  <div className="pt-2">
+                    <ApprovalQueueActions decisionId={item.decisionId} approvedLabel={item.repository} />
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-4 xl:flex-col xl:items-end xl:justify-start">
@@ -133,11 +106,14 @@ export default async function ApprovalQueuePage() {
                       {(item.compositeScore * 100).toFixed(0)}
                     </p>
                   </div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-mint/80 transition group-hover:text-mint">
+                  <Link
+                    href={`/events/${item.eventId}`}
+                    className="text-xs uppercase tracking-[0.2em] text-mint/80 transition group-hover:text-mint"
+                  >
                     Review
-                  </div>
+                  </Link>
                 </div>
-              </Link>
+              </div>
             ))
           )}
         </div>
