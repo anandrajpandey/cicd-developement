@@ -666,6 +666,7 @@ export async function executeAdkWorkflow(
       for await (const runnerEvent of debateWorkflowRunner.runEphemeral({
         userId: `event:${event.eventId}`,
         newMessage: {
+          role: 'user',
           parts: [
             {
               text: JSON.stringify(event, null, 2),
@@ -720,6 +721,7 @@ export async function executeAdkRoundZero(event: PipelineEvent): Promise<AdkRoun
       for await (const runnerEvent of roundZeroWorkflowRunner.runEphemeral({
         userId: `event:${event.eventId}`,
         newMessage: {
+          role: 'user',
           parts: [
             {
               text: JSON.stringify({ ...event, codeContext }, null, 2),
@@ -803,6 +805,7 @@ export async function executeAdkJudge(input: {
       for await (const runnerEvent of judgeWorkflowRunner.runEphemeral({
         userId: `event:${input.event.eventId}`,
         newMessage: {
+          role: 'user',
           parts: [
             {
               text: JSON.stringify(buildGroundedJudgeInput(input, codeContext), null, 2),
