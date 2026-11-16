@@ -208,11 +208,10 @@ function isWeakFinding(finding: AgentFinding): boolean {
 }
 
 function synthesizeHeuristicChallenges(findings: AgentFinding[]): Challenge[] {
-  const strongFindings = findings.filter((finding) => finding.confidence >= 0.45);
-  const weakFindings = findings.filter((finding) => isWeakFinding(finding));
+  const strongFindings = findings.filter((finding) => !isWeakFinding(finding));
   const challengesByTarget = new Map<AgentId, Challenge>();
 
-  for (const target of weakFindings) {
+  for (const target of strongFindings) {
     const challenger = strongFindings.find((candidate) => candidate.agentId !== target.agentId);
 
     if (!challenger || challengesByTarget.has(target.agentId)) {
@@ -596,7 +595,16 @@ export async function runCrossChallenges(
 
   const adkValidChallenges = adkChallenges
     .map((result) => validateChallenge(result.challenge))
-    .filter((challenge): challenge is Challenge => challenge !== null);
+    .filter((challenge): challenge is Challenge => {
+      if (!challenge) {
+        return false;
+      }
+
+      const challenger = findings.find((finding) => finding.agentId === challenge.challengerAgentId);
+      const target = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+
+      return Boolean(challenger && target && !isWeakFinding(challenger) && !isWeakFinding(target));
+    });
   const heuristicChallenges =
     adkValidChallenges.length === 0 ? synthesizeHeuristicChallenges(findings) : [];
   const finalizedAdkChallenges =
@@ -643,7 +651,16 @@ export async function runCrossChallenges(
   const validChallenges = settledChallenges
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
     .map((challenge) => validateChallenge(challenge))
-    .filter((challenge): challenge is Challenge => challenge !== null);
+    .filter((challenge): challenge is Challenge => {
+      if (!challenge) {
+        return false;
+      }
+
+      const challenger = findings.find((finding) => finding.agentId === challenge.challengerAgentId);
+      const target = findings.find((finding) => finding.agentId === challenge.targetAgentId);
+
+      return Boolean(challenger && target && !isWeakFinding(challenger) && !isWeakFinding(target));
+    });
   const finalizedNativeChallenges =
     validChallenges.length > 0 ? validChallenges : synthesizeHeuristicChallenges(findings);
 
