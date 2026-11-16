@@ -7,7 +7,6 @@ export interface ChatMessage {
   content: string;
 }
 
-const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 const DEFAULT_OLLAMA_MODEL = 'mistral:7b';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 3;
@@ -68,6 +67,10 @@ function getGroqClient(): GroqCompletionClient {
   }
 
   return new Groq({ apiKey });
+}
+
+function getGroqModel(): string {
+  return process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
 }
 
 function getOllamaBaseUrl(): string {
@@ -245,7 +248,7 @@ export function createChatClient(overrides: ChatClientDependencies = {}) {
     timeoutMs: overrides.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
 
-  return async function chat(messages: ChatMessage[], model = DEFAULT_GROQ_MODEL): Promise<string> {
+  return async function chat(messages: ChatMessage[], model = getGroqModel()): Promise<string> {
     try {
       return await Promise.race([
         requestGroq(messages, model, deps),

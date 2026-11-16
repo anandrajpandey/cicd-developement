@@ -39,7 +39,9 @@ import { judgePrompt } from '../prompts/judge.js';
 import { testAnalyzerPrompt } from '../prompts/test-analyzer.js';
 import { crossChallengePrompt, rebuttalPrompt } from '../prompts/debate-stages.js';
 
-const PRIMARY_MODEL = 'groq/llama-3.1-8b-instant';
+loadEnv();
+
+const PRIMARY_MODEL = `groq/${process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile'}`;
 const FALLBACK_MODEL = 'ollama/mistral:7b';
 const ADK_EXECUTION_TIMEOUT_MS = 60_000; // Increased to 60s for local LLM inference
 const findingPayloadSchema = agentFindingSchema.pick({
@@ -69,8 +71,6 @@ const roundZeroAgentIds = [
   'test_analyzer',
   'dependency_checker',
 ] as const satisfies readonly AgentId[];
-
-loadEnv();
 
 class GroqBridgeLlm extends BaseLlm {
   static supportedModels = [/^groq\/.+$/, /^ollama\/.+$/];
