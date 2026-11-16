@@ -1,1 +1,1 @@
-ALTER TABLE "agent_findings" ADD COLUMN "tool_trace" jsonb;
+ALTER TABLE "agent_findings" ADD COLUMN IF NOT EXISTS "tool_trace" jsonb;

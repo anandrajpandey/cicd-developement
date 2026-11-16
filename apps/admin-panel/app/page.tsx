@@ -149,7 +149,9 @@ export default async function DashboardPage({
                   anandrajpandey/cicd-developement
                 </p>
               </div>
-              <Github className="h-4 w-4 text-white/72" />
+              <div className="rounded-lg bg-white p-2.5 translate-y-0.5">
+                <Github className="h-5 w-5 text-black" />
+              </div>
             </div>
             <p className="mt-4 text-xs uppercase tracking-[0.22em] text-white/45">
               branch feed online
