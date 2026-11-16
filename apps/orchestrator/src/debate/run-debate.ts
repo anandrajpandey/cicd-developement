@@ -300,6 +300,10 @@ export function classifyMitigationTier(
 ): RiskTier {
   const baseline = classifyRiskTier(compositeScore);
 
+  if (event.failureType === 'simulation_easy') {
+    return 'LOW';
+  }
+
   if (event.failureType !== 'lint_error') {
     return baseline;
   }

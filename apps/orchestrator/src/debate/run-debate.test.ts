@@ -94,3 +94,19 @@ test('classifyMitigationTier keeps lint-only mitigation LOW even with strong con
 
   assert.equal(riskTier, 'LOW');
 });
+
+test('classifyMitigationTier keeps the low-risk simulation LOW', () => {
+  const event = {
+    eventId: '11111111-1111-4111-8111-111111111111',
+    repository: 'agentic-testers/dummy-repo',
+    commitSha: '5a2b1c9d',
+    branch: 'feature/test-risks',
+    failureType: 'simulation_easy',
+    errorLog: 'ESLint Report: Lint warnings detected in the build.',
+    timestamp: new Date('2026-04-28T00:00:00.000Z'),
+  };
+
+  const riskTier = classifyMitigationTier(event, baseFindings, 0.9);
+
+  assert.equal(riskTier, 'LOW');
+});
